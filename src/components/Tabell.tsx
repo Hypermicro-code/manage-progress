@@ -1,5 +1,6 @@
 // Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
-// v0.2.4-fix: Fjern openCellEditor (ikke i vår Glide-versjon). Enkeltklikk + date-popover + fleksibel parsing + prompt + tapsfri skriving.
+// v0.2.5: Enkeltklikk/Tab = skriving, Dobbeltklikk = kalender (Start/Slutt), direkte valg uten bekreftelsesknapp
+//  + fleksibel parsing + rekalkuleringsprompt + tapsfri skriving
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -322,9 +323,9 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }, [selection, getCellString]);
   /* ==== [BLOCK: copy helpers] END ==== */
 
-  /* ==== [BLOCK: global key/mouse handlers – single-click helpers + date popover + copy + lossless typing] BEGIN ==== */
+  /* ==== [BLOCK: global key/mouse handlers – dblclick calendar + Alt+↓ + copy + lossless typing] BEGIN ==== */
   useEffect(() => {
-    // Husk siste klikkposisjon for å posisjonere date-popover
+    // Husk siste klikkposisjon (for popover-posisjon)
     const onMouseDown = (e: MouseEvent) => {
       if (!containerRef.current) return;
       if (!containerRef.current.contains(e.target as Node)) return;
@@ -333,6 +334,20 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     };
     window.addEventListener("mousedown", onMouseDown, { capture: true });
 
+    // Dobbeltklikk: åpne kalender hvis start/slutt
+    const onDoubleClick = (_e: MouseEvent) => {
+      if (!selection.current) return;
+      const { x, y, width, height } = selection.current.range;
+      if (width !== 1 || height !== 1) return;
+      const colKey = TABLE_COLS[x].key as keyof Rad;
+      if (colKey !== "start" && colKey !== "slutt") return;
+      const rowIndex = y;
+      const value = String(rows[rowIndex]?.[colKey] ?? "");
+      const pos = lastClickPos.current || { x: 20, y: 20 };
+      setDatePop({ open: true, row: rowIndex, col: x, key: colKey, value, x: pos.x, y: pos.y });
+    };
+    window.addEventListener("dblclick", onDoubleClick, { capture: true });
+
     const onKeyDown = (e: KeyboardEvent) => {
       const within =
         containerRef.current &&
@@ -340,7 +355,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           containerRef.current.contains(document.activeElement));
       if (!within) return;
 
-      // Åpne date-popover med Alt+PilNed hvis i start/slutt
+      // Alt+PilNed: åpne kalender på start/slutt
       if (selection.current) {
         const { x, y, width, height } = selection.current.range;
         if (width === 1 && height === 1) {
@@ -396,10 +411,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       const navKeys = ["Enter","Escape","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab"];
       if (navKeys.includes(e.key)) {
         typeBufRef.current = null;
-        if (typeBufTimerRef.current) {
-          window.clearTimeout(typeBufTimerRef.current);
-          typeBufTimerRef.current = null;
-        }
+        if (typeBufTimerRef.current) { window.clearTimeout(typeBufTimerRef.current); typeBufTimerRef.current = null; }
         return;
       }
 
@@ -440,10 +452,11 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     window.addEventListener("keydown", onKeyDown, { capture: true });
     return () => {
       window.removeEventListener("mousedown", onMouseDown as any, { capture: true } as any);
+      window.removeEventListener("dblclick", onDoubleClick as any, { capture: true } as any);
       window.removeEventListener("keydown", onKeyDown as any, { capture: true } as any);
     };
   }, [rows, selection, setCell, copySelectionToClipboard]);
-  /* ==== [BLOCK: global key/mouse handlers – single-click helpers + date popover + copy + lossless typing] END ==== */
+  /* ==== [BLOCK: global key/mouse handlers – dblclick calendar + Alt+↓ + copy + lossless typing] END ==== */
 
   /* ==== [BLOCK: imperative handle] BEGIN ==== */
   useImperativeHandle(ref, () => ({
@@ -504,18 +517,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           const top = Math.floor(yRows / ROW_H);
           onTopRowChange?.(top);
         }}
-        // Enkeltklikk-aktivering: vi åpner *bare* vår date-popover for start/slutt.
-        onCellActivated={(cell) => {
-          const [col, row] = cell;
-          const key = TABLE_COLS[col].key as keyof Rad;
-          if (key === "start" || key === "slutt") {
-            const val = String(rows[row]?.[key] ?? "");
-            const pos = lastClickPos.current || { x: 20, y: 20 };
-            setDatePop({ open: true, row, col, key, value: val, x: pos.x, y: pos.y });
-          } else {
-            if (datePop?.open) setDatePop(null);
-          }
-        }}
       />
 
       {/* Masker ev. interne scrollbars */}
@@ -545,7 +546,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           value={datePop.value}
           onChange={(iso) => {
             setCell(datePop.row, datePop.key, iso as any);
-            // trigge regler (auto path) etter setting
+            // trigge auto-regler etter setting
             const nextRow: Rad = { ...rows[datePop.row], [datePop.key]: iso } as Rad;
             const plan = planAfterEdit(nextRow, datePop.key);
             if (plan.autoPatch) {
@@ -665,6 +666,7 @@ function DatePopover({
 }) {
   const [val, setVal] = useState<string>(() => (value || ""));
   const ref = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const onClickAway = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onCancel();
@@ -674,10 +676,10 @@ function DatePopover({
   }, [onCancel]);
 
   useEffect(() => {
-    // Åpne native kalender automatisk
     const input = ref.current?.querySelector('input[type="date"]') as HTMLInputElement | null;
     if (input) {
       input.focus();
+      // Åpne native picker hvis støttet
       input.showPicker?.();
     }
   }, []);
@@ -705,24 +707,18 @@ function DatePopover({
         type="date"
         className="btn"
         value={val}
-        onChange={(e) => setVal(e.currentTarget.value)}
+        onChange={(e) => {
+          const next = e.currentTarget.value;
+          setVal(next);
+          // Sett dato umiddelbart og lukk
+          const { normalized } = canonicalizeDateInput(next);
+          if (normalized) onChange(normalized);
+          else onCancel();
+        }}
         style={{ padding: "6px 8px", minWidth: 210 }}
       />
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button className="btn" onClick={onCancel}>Avbryt</button>
-        <button
-          className="btn primary"
-          onClick={() => {
-            const { normalized } = canonicalizeDateInput(val);
-            if (normalized) onChange(normalized);
-            else onCancel();
-          }}
-        >
-          Sett dato
-        </button>
-      </div>
       <div style={{ fontSize: 11, color: "#6b7280" }}>
-        Tips: Alt+↓ åpner kalender på valgt celle.
+        Dobbeltklikk for å velge dato. Alt+↓ åpner også kalender.
       </div>
     </div>
   );
