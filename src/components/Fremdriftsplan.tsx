@@ -181,6 +181,7 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
             aria-label="Flytt skillelinje mellom Tabell og Gantt"
             aria-orientation="vertical"
             className="splitter"
+            style={{ height: "100%" }}
             onMouseDown={onSplitterDown}
             onTouchStart={onSplitterDown}
             onDoubleClick={onSplitterDoubleClick}
