@@ -269,13 +269,18 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: imperative handle] END ==== */
 
   /* ==== [BLOCK: theme + sizing] BEGIN ==== */
-  const theme = useMemo(
-    () => ({
-      headerHeight: HEADER_H,
-      rowHeight: ROW_H,
-    }),
-    []
-  );
+  
+  /* ==== [BLOCK: Tabell theme – header sync] BEGIN ==== */
+const theme = useMemo(
+  () => ({
+    headerHeight: HEADER_H,
+    rowHeight: ROW_H,
+    // Sikre lik bunnlinje som Gantt-headeren
+    headerBottomBorder: "2px solid var(--line-strong)",
+  }),
+  []
+);
+/* ==== [BLOCK: Tabell theme – header sync] END ==== */
 
   // Hindre intern vertikal scroll ved å gi editoren “full” høyde
   const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
