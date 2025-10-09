@@ -1,5 +1,4 @@
-// Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
-// v0.2.1: Beregningsregler + rekalkulerings-PROMPT ved tvetydige endringer
+// Tabell.tsx – v0.2.1 core-refactor: flytter beregningslogikk til /src/core
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -22,6 +21,14 @@ import DataEditor, {
 import "@glideapps/glide-data-grid/dist/index.css";
 import type { Rad } from "../core/types";
 import { HEADER_H, ROW_H, TABLE_COLS } from "../core/layout";
+
+import { toDate, toNum } from "../core/date";
+import {
+  planAfterEdit,
+  resolvePrompt,
+  type RecalcPromptMeta,
+  type PromptKind,
+} from "../core/recalc";
 /* ==== [BLOCK: imports] END ==== */
 
 /* ==== [BLOCK: types & handles] BEGIN ==== */
@@ -36,78 +43,16 @@ type Props = {
   rows: Rad[];
   setCell: (rowIndex: number, key: keyof Rad, value: Rad[keyof Rad]) => void;
 
-  /** total content height (for å unngå intern V-scroll) */
   height: number;
-  /** horisontal scrollposisjon styres utenfra */
   scrollX: number;
   onScrollXChange: (x: number) => void;
   onTotalWidthChange?: (w: number) => void;
 
-  /** Løft opp valgt område (for “Tøm markerte”) */
   onSelectionChange?: (cells: { r: number; c: KolonneKey }[]) => void;
-
-  /** NY: rapportér viewport-bredde (for korrekt slider-max) */
   onViewportWidthChange?: (w: number) => void;
-
-  /** NY: rapportér topRow basert på faktisk synlig region i grid */
   onTopRowChange?: (top: number) => void;
 };
 /* ==== [BLOCK: types & handles] END ==== */
-
-/* ==== [BLOCK: date helpers] BEGIN ==== */
-function toDate(s: any): Date | null {
-  const str = String(s ?? "").trim();
-  if (!str) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
-  if (m) {
-    const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
-    const dt = new Date(y, mo, d);
-    dt.setHours(0, 0, 0, 0);
-    return isNaN(dt.getTime()) ? null : dt;
-  }
-  const dt = new Date(str);
-  if (isNaN(dt.getTime())) return null;
-  dt.setHours(0, 0, 0, 0);
-  return dt;
-}
-function addDays(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function subDays(d: Date, n: number): Date {
-  return addDays(d, -n);
-}
-function fmt(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${da}`;
-}
-function toNum(n: any): number | null {
-  const v = Number(String(n ?? "").replace(",", "."));
-  return Number.isFinite(v) ? v : null;
-}
-function diffDaysInclusive(a: Date, b: Date): number {
-  const ms = b.getTime() - a.getTime();
-  return Math.floor(ms / (1000 * 60 * 60 * 24)) + 1;
-}
-/* ==== [BLOCK: date helpers] END ==== */
-
-/* ==== [BLOCK: recalc prompt types] BEGIN ==== */
-type ChangeKey = "start" | "slutt" | "varighet";
-type PromptKind =
-  | "start-changed"   // har slutt+varighet → valg: hold varighet (flytt slutt) | hold slutt (reberegn varighet)
-  | "slutt-changed"   // har start+varighet → valg: hold varighet (flytt start)  | hold start (reberegn varighet)
-  | "varighet-changed"; // har start+slutt → valg: hold start (flytt slutt)       | hold slutt (flytt start)
-
-type RecalcPrompt = {
-  row: number;
-  kind: PromptKind;
-  nextRow: Rad; // snapshot etter primær-commit (inkl. nylig redigert verdi)
-};
-/* ==== [BLOCK: recalc prompt types] END ==== */
 
 /* ==== [BLOCK: component] BEGIN ==== */
 const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
@@ -124,14 +69,11 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   },
   ref
 ) {
-  /* ==== [BLOCK: refs] BEGIN ==== */
   const editorRef = useRef<DataEditorRef | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  /* ==== [BLOCK: refs] END ==== */
 
-  /* ==== [BLOCK: recalc prompt state] BEGIN ==== */
-  const [prompt, setPrompt] = useState<RecalcPrompt | null>(null);
-  /* ==== [BLOCK: recalc prompt state] END ==== */
+  /* Prompt state (tvetydige endringer) */
+  const [prompt, setPrompt] = useState<(RecalcPromptMeta & { row: number }) | null>(null);
 
   /* ==== [BLOCK: columns] BEGIN ==== */
   const columns = useMemo<GridColumn[]>(
@@ -153,11 +95,9 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }, [columns, onTotalWidthChange]);
   /* ==== [BLOCK: columns] END ==== */
 
-  /* ==== [BLOCK: external H-scroll sync] BEGIN ==== */
   useEffect(() => {
     editorRef.current?.scrollTo(scrollX, 0);
   }, [scrollX]);
-  /* ==== [BLOCK: external H-scroll sync] END ==== */
 
   /* ==== [BLOCK: getCellContent] BEGIN ==== */
   const getCellContent = React.useCallback(
@@ -187,14 +127,14 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   );
   /* ==== [BLOCK: getCellContent] END ==== */
 
-  /* ==== [BLOCK: onCellEdited (v0.2.1 med prompt)] BEGIN ==== */
+  /* ==== [BLOCK: onCellEdited – bruker core/recalc] BEGIN ==== */
   const onCellEdited = React.useCallback(
     (item: Item, newValue: GridCell) => {
       const [col, row] = item;
       const key = TABLE_COLS[col].key as keyof Rad;
       if (!rows[row]) return;
 
-      // ---- Normaliser innkommende verdi
+      // Normaliser innkommende verdi
       let editedVal: any = "";
       if (newValue.kind === GridCellKind.Number) {
         editedVal =
@@ -207,60 +147,37 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         editedVal = (newValue as any).data ?? (newValue as any).displayData ?? "";
       }
 
-      // ---- Lokal snapshot av raden *etter* redigeringen
+      // Snapshot “etter” primær-commit
       const curr = rows[row];
       const nextRow: Rad = { ...curr, [key]: editedVal } as Rad;
 
-      // Commit primærfeltet først (det brukeren redigerte)
+      // Commit primærfeltet
       setCell(row, key, editedVal as any);
 
-      // ---- Finn situasjon for prompt/auto
-      const s = toDate(nextRow.start);
-      const e = toDate(nextRow.slutt);
-      const d = toNum(nextRow.varighet);
-
-      // Tvetydige cases → prompt:
-      if (key === "start" && e && d && d > 0) {
-        setPrompt({ row, kind: "start-changed", nextRow });
+      // Planlegg videre: prompt eller autopatch
+      const plan = planAfterEdit(nextRow, key as any);
+      if (plan.prompt) {
+        setPrompt({ ...plan.prompt, row });
         return;
       }
-      if (key === "slutt" && s && d && d > 0) {
-        setPrompt({ row, kind: "slutt-changed", nextRow });
-        return;
-      }
-      if (key === "varighet" && s && e) {
-        setPrompt({ row, kind: "varighet-changed", nextRow });
-        return;
-      }
-
-      // Ikke-tvetydige cases → automatikk:
-      // R1: Start + Varighet → Slutt
-      if (key === "start" || key === "varighet") {
-        const s1 = toDate(nextRow.start);
-        const d1 = toNum(nextRow.varighet);
-        if (s1 && d1 && d1 > 0) {
-          const newEnd = addDays(s1, d1 - 1);
-          setCell(row, "slutt", fmt(newEnd) as any);
+      if (plan.autoPatch) {
+        for (const [k, v] of Object.entries(plan.autoPatch)) {
+          setCell(row, k as keyof Rad, v as any);
         }
       }
 
-      // R2: Start + Slutt → Varighet
-      if (key === "start" || key === "slutt") {
-        const s2 = toDate(nextRow.start);
-        const e2 = toDate(nextRow.slutt);
-        if (s2 && e2 && e2.getTime() >= s2.getTime()) {
-          setCell(row, "varighet", diffDaysInclusive(s2, e2) as any);
-        } else if (key === "slutt" && s2 && !e2) {
-          // Slutt tømt → nullstill varighet
-          setCell(row, "varighet", "" as any);
-        }
+      // Robusthet: ugyldig rekkefølge → blank ut varighet
+      const s2 = toDate((plan.autoPatch?.start as any) ?? nextRow.start);
+      const e2 = toDate((plan.autoPatch?.slutt as any) ?? nextRow.slutt);
+      if (s2 && e2 && e2 < s2) {
+        setCell(row, "varighet", "" as any);
       }
     },
     [rows, setCell]
   );
-  /* ==== [BLOCK: onCellEdited (v0.2.1 med prompt)] END ==== */
+  /* ==== [BLOCK: onCellEdited – bruker core/recalc] END ==== */
 
-  /* ==== [BLOCK: selection state + lift] BEGIN ==== */
+  /* ==== [BLOCK: selection lift] BEGIN ==== */
   const [selection, setSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
@@ -282,7 +199,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     }
     onSelectionChange?.(out);
   }, [selection, onSelectionChange]);
-  /* ==== [BLOCK: selection state + lift] END ==== */
+  /* ==== [BLOCK: selection lift] END ==== */
 
   /* ==== [BLOCK: paste handler] BEGIN ==== */
   const onPaste = React.useCallback(
@@ -350,7 +267,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         const ta = document.createElement("textarea");
         ta.value = tsv;
         ta.style.position = "fixed";
-        ta.style.left = "-9999px";
+        ta.style.left: "-9999px";
         document.body.appendChild(ta);
         ta.select();
         try { document.execCommand("copy"); } catch {}
@@ -360,27 +277,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     void doCopy();
     return true;
   }, [selection, getCellString]);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const within =
-        containerRef.current &&
-        (containerRef.current === document.activeElement ||
-          containerRef.current.contains(document.activeElement));
-      if (!within) return;
-      const isMac = navigator.platform.toLowerCase().includes("mac");
-      const mod = isMac ? e.metaKey : e.ctrlKey;
-      if (mod && e.key.toLowerCase() === "c") {
-        const handled = copySelectionToClipboard();
-        if (handled) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", onKeyDown as any, { capture: true } as any);
-  }, [copySelectionToClipboard]);
   /* ==== [BLOCK: copy helpers] END ==== */
 
   /* ==== [BLOCK: imperative handle] BEGIN ==== */
@@ -407,8 +303,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     }),
     []
   );
-
-  // Editorhøyde > innhold for å unngå intern V-scroll (liten buffer)
   const editorHeight = HEADER_H + rows.length * ROW_H + 20;
   /* ==== [BLOCK: Tabell theme + sizing] END ==== */
 
@@ -446,50 +340,18 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         }}
       />
 
-      {/* Masker ev. intern vertikal scrollbar helt til høyre */}
       <div className="tabell-vmask" aria-hidden />
       <div className="tabell-hmask" aria-hidden />
 
-      {/* Recalc prompt */}
+      {/* Prompt */}
       {prompt && (
         <RecalcDialog
           prompt={prompt}
           onApply={(action) => {
-            const { row, kind, nextRow } = prompt;
-            const s = toDate(nextRow.start);
-            const e = toDate(nextRow.slutt);
-            const d = toNum(nextRow.varighet);
-
-            if (kind === "start-changed" && s && e && d) {
-              if (action === "keep-duration") {
-                // Flytt SLUTT for å bevare VARIGHET
-                setCell(row, "slutt", fmt(addDays(s, d - 1)) as any);
-              } else if (action === "keep-end") {
-                // Reberegn VARIGHET basert på SLUTT
-                setCell(row, "varighet", diffDaysInclusive(s, e) as any);
-              }
+            const patch = resolvePrompt(prompt.nextRow, prompt.kind, action);
+            for (const [k, v] of Object.entries(patch)) {
+              setCell(prompt.row, k as keyof Rad, v as any);
             }
-
-            if (kind === "slutt-changed" && s && e && d) {
-              if (action === "keep-duration") {
-                // Flytt START for å bevare VARIGHET
-                setCell(row, "start", fmt(subDays(e, d - 1)) as any);
-              } else if (action === "keep-start") {
-                // Reberegn VARIGHET basert på START
-                setCell(row, "varighet", diffDaysInclusive(s, e) as any);
-              }
-            }
-
-            if (kind === "varighet-changed" && s && e && d) {
-              if (action === "keep-start") {
-                // Flytt SLUTT fra START
-                setCell(row, "slutt", fmt(addDays(s, d - 1)) as any);
-              } else if (action === "keep-end") {
-                // Flytt START fra SLUTT
-                setCell(row, "start", fmt(subDays(e, d - 1)) as any);
-              }
-            }
-
             setPrompt(null);
           }}
           onCancel={() => setPrompt(null)}
@@ -509,12 +371,8 @@ function RecalcDialog({
   onApply,
   onCancel,
 }: {
-  prompt: RecalcPrompt;
-  onApply: (action:
-    | "keep-duration" // flytt motsatt dato
-    | "keep-end"      // hold slutt, reberegn varighet ELLER flytt start (avhengig case)
-    | "keep-start"    // hold start, reberegn varighet ELLER flytt slutt (avhengig case)
-  ) => void;
+  prompt: RecalcPromptMeta & { row: number };
+  onApply: (action: "keep-duration" | "keep-end" | "keep-start") => void;
   onCancel: () => void;
 }) {
   const { kind } = prompt;
