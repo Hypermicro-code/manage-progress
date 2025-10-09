@@ -165,7 +165,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   );
   /* ==== [BLOCK: getCellContent] END ==== */
 
-  /* ==== [BLOCK: onCellEdited (v0.2 rules)] BEGIN ==== */
+ /* ==== [BLOCK: onCellEdited (v0.2 rules + Slutt+Varighet→Start)] BEGIN ==== */
 const onCellEdited = React.useCallback(
   (item: Item, newValue: GridCell) => {
     const [col, row] = item;
@@ -211,6 +211,7 @@ const onCellEdited = React.useCallback(
       x.setHours(0, 0, 0, 0);
       return x;
     };
+    const subDays = (d: Date, n: number) => addDays(d, -n);
     const fmt = (d: Date) => {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -226,35 +227,40 @@ const onCellEdited = React.useCallback(
       return Math.floor(ms / (1000 * 60 * 60 * 24)) + 1;
     };
 
-    // ---- Beregn avhengigheter på snapshotet
-    const s = toDate(nextRow.start);
-    const e = toDate(nextRow.slutt);
-    const d = toNum(nextRow.varighet);
+    // ---- Beregn på snapshotet
+    let s = toDate(nextRow.start);
+    let e = toDate(nextRow.slutt);
+    let d = toNum(nextRow.varighet);
 
     // Commit primærfeltet først (det brukeren redigerte)
     setCell(row, key, editedVal as any);
 
-    // Regel 1: Start + Varighet → Slutt
+    // --------- Hovedregler (inkl. ny: Slutt + Varighet → Start) ---------
+
+    // R1: Start + Varighet → Slutt
     if (s && d && d > 0) {
       const newEnd = addDays(s, d - 1);
       const newEndStr = fmt(newEnd);
       if (nextRow.slutt !== newEndStr) {
         setCell(row, "slutt", newEndStr as any);
+        e = newEnd; // hold lokalt oppdatert for videre regler
       }
     }
 
-    // Regel 2: Start + Slutt → Varighet
+    // R2: Start + Slutt → Varighet
     if (s && e && e.getTime() >= s.getTime()) {
       const newDur = diffDaysInclusive(s, e);
       if (toNum(nextRow.varighet) !== newDur) {
         setCell(row, "varighet", newDur as any);
+        d = newDur;
       }
     } else if (key === "slutt" && s && !e) {
-      // Satt slutt til tomt: nullstill varighet (unngå stale tall)
+      // Slutt gjort tom → nullstill varighet
       setCell(row, "varighet", "" as any);
+      d = null;
     }
 
-    // Regel 3: Varighet alene (med Start) → Slutt
+    // R3: Varighet alene + Start → Slutt
     if (key === "varighet" && s) {
       const dur = toNum(editedVal);
       if (dur && dur > 0) {
@@ -262,20 +268,39 @@ const onCellEdited = React.useCallback(
         const newEndStr = fmt(newEnd);
         if (nextRow.slutt !== newEndStr) {
           setCell(row, "slutt", newEndStr as any);
+          e = newEnd;
         }
       }
     }
 
-    // Robusthet: Rydd opp ugyldige kombinasjoner (ingen NaN/tekstlukter)
-    // - Hvis slutt < start → ikke sett varighet automatisk
+    // R4 (NY): Slutt + Varighet → Start
+    //  - Trigger når brukeren endrer "slutt" ELLER "varighet" og start mangler/skal utledes
+    if ((!s || key === "slutt" || key === "varighet") && e && d && d > 0) {
+      // Hvis Start mangler, eller vi eksplisitt redigerte slutt/varighet, regn Start
+      // inklusiv varighet => start = slutt - (d-1)
+      const newStart = subDays(e, d - 1);
+      const newStartStr = fmt(newStart);
+      if (!s || nextRow.start !== newStartStr) {
+        setCell(row, "start", newStartStr as any);
+        s = newStart;
+      }
+      // Etter vi fikk en start, sørg for at varighet er konsistent (sanity)
+      if (s && e && e.getTime() >= s.getTime()) {
+        const newDur = diffDaysInclusive(s, e);
+        if (newDur !== d) setCell(row, "varighet", newDur as any);
+      }
+    }
+
+    // Robusthet: ugyldige kombinasjoner
     if (s && e && e.getTime() < s.getTime()) {
-      // Behold brukerens input, men ikke sett varighet feil; la den stå tom
+      // Behold input, men ikke vis en feilaktig varighet
       setCell(row, "varighet", "" as any);
     }
   },
   [rows, setCell]
 );
-/* ==== [BLOCK: onCellEdited (v0.2 rules)] END ==== */
+/* ==== [BLOCK: onCellEdited (v0.2 rules + Slutt+Varighet→Start)] END ==== */
+
 
 
   /* ==== [BLOCK: selection state + lift] BEGIN ==== */
