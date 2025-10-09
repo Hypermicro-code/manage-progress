@@ -42,13 +42,30 @@ type Props = {
   onScrollXChange: (x: number) => void;
   onTotalWidthChange?: (w: number) => void;
 
+  /** Løft opp valgt område (for “Tøm markerte”) */
   onSelectionChange?: (cells: { r: number; c: KolonneKey }[]) => void;
+
+  /** NY: rapportér viewport-bredde (for korrekt slider-max) */
+  onViewportWidthChange?: (w: number) => void;
+
+  /** NY: rapportér topRow basert på faktisk synlig region i grid */
+  onTopRowChange?: (top: number) => void;
 };
 /* ==== [BLOCK: types & handles] END ==== */
 
 /* ==== [BLOCK: component] BEGIN ==== */
 const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
-  { rows, setCell, height, scrollX, onScrollXChange, onTotalWidthChange, onSelectionChange },
+  {
+    rows,
+    setCell,
+    height,
+    scrollX,
+    onScrollXChange,
+    onTotalWidthChange,
+    onSelectionChange,
+    onViewportWidthChange,
+    onTopRowChange,
+  },
   ref
 ) {
   /* ==== [BLOCK: refs] BEGIN ==== */
@@ -62,15 +79,14 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       TABLE_COLS.map((col) => ({
         id: col.key,
         title: col.name,
-        width: col.width, // i unionen er dette gyldig for SizedGridColumn
+        width: col.width,
       })),
     []
   );
 
   useEffect(() => {
     const total = columns.reduce(
-      (acc, c) =>
-        acc + (("width" in c && typeof (c as any).width === "number" ? (c as any).width : 120)),
+      (acc, c) => acc + (("width" in c && typeof (c as any).width === "number" ? (c as any).width : 120)),
       0
     );
     onTotalWidthChange?.(total);
@@ -79,7 +95,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
   /* ==== [BLOCK: external H-scroll sync] BEGIN ==== */
   useEffect(() => {
-    // Glide 6.0.1 bruker signaturen scrollTo(x, y)
     editorRef.current?.scrollTo(scrollX, 0);
   }, [scrollX]);
   /* ==== [BLOCK: external H-scroll sync] END ==== */
@@ -181,7 +196,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           setCell(r, key, val);
         }
       }
-      return true; // håndtert
+      return true;
     },
     [rows.length, setCell]
   );
@@ -237,7 +252,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     return true;
   }, [selection, getCellString]);
 
-  // Lytt på Cmd/Ctrl+C når fokus er i grid-containeren
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const within =
@@ -245,10 +259,8 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         (containerRef.current === document.activeElement ||
           containerRef.current.contains(document.activeElement));
       if (!within) return;
-
       const isMac = navigator.platform.toLowerCase().includes("mac");
       const mod = isMac ? e.metaKey : e.ctrlKey;
-
       if (mod && e.key.toLowerCase() === "c") {
         const handled = copySelectionToClipboard();
         if (handled) {
@@ -270,61 +282,59 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: imperative handle] END ==== */
 
   /* ==== [BLOCK: Tabell theme + sizing] BEGIN ==== */
-const theme = useMemo(
-  () => ({
-    // Kun stil – ikke høyder
-    headerFontColor: "#6b7280",
-    headerBackgroundColor: "#ffffff",
-    headerBottomBorder: "2px solid var(--line-strong)", // samme som Gantt
-  }),
-  []
-);
+  const theme = useMemo(
+    () => ({
+      headerFontColor: "#6b7280",
+      headerBackgroundColor: "#ffffff",
+      headerBottomBorder: "2px solid var(--line-strong)",
+    }),
+    []
+  );
 
-// Editorhøyde > innhold for å unngå intern V-scroll (liten buffer)
-const editorHeight = HEADER_H + rows.length * ROW_H + 20;
-/* ==== [BLOCK: Tabell theme + sizing] END ==== */
+  // Editorhøyde > innhold for å unngå intern V-scroll (liten buffer)
+  const editorHeight = HEADER_H + rows.length * ROW_H + 20;
+  /* ==== [BLOCK: Tabell theme + sizing] END ==== */
 
+  /* ==== [BLOCK: Tabell render] BEGIN ==== */
+  return (
+    <div
+      ref={containerRef}
+      className="hide-native-scrollbars tabell-grid"
+      style={{ overflow: "hidden", position: "relative" }}
+    >
+      <DataEditor
+        ref={editorRef}
+        width="100%"
+        height={editorHeight}
+        rows={rows.length}
+        columns={columns}
+        getCellContent={getCellContent}
+        onCellEdited={onCellEdited}
+        onPaste={onPaste}
+        gridSelection={selection}
+        onGridSelectionChange={setSelection}
+        rowMarkers="number"
+        smoothScrollX
+        smoothScrollY={false}
+        headerHeight={HEADER_H}
+        rowHeight={ROW_H}
+        overscrollY={0}
+        theme={theme as any}
+        onVisibleRegionChanged={(r) => {
+          onScrollXChange?.(r.x);
+          onViewportWidthChange?.(r.width);
+          const yRows = Math.max(0, r.y - HEADER_H);
+          const top = Math.floor(yRows / ROW_H);
+          onTopRowChange?.(top);
+        }}
+      />
 
-
-
-/* ==== [BLOCK: Tabell render] BEGIN ==== */
-return (
-  <div
-    ref={containerRef}
-    className="hide-native-scrollbars tabell-grid"
-    style={{ overflow: "hidden", position: "relative" }}
-  >
-    <DataEditor
-      ref={editorRef}
-      width="100%"
-      height={editorHeight}
-      rows={rows.length}
-      columns={columns}
-      getCellContent={getCellContent}
-      onCellEdited={onCellEdited}
-      onPaste={onPaste}
-      gridSelection={selection}
-      onGridSelectionChange={setSelection}
-      rowMarkers="number"
-      smoothScrollX
-      smoothScrollY={false}
-      headerHeight={HEADER_H}
-      rowHeight={ROW_H}
-      overscrollY={0}
-      theme={theme as any}
-      onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
-    />
-
-    {/* Masker Glide sin interne vertikale scrollbar helt til høyre */}
-    <div className="tabell-vmask" aria-hidden />
-  </div>
-);
-/* ==== [BLOCK: Tabell render] END ==== */
-
-
-
+      {/* Masker ev. intern vertikal scrollbar helt til høyre */}
+      <div className="tabell-vmask" aria-hidden />
+    </div>
+  );
+  /* ==== [BLOCK: Tabell render] END ==== */
 });
 /* ==== [BLOCK: component] END ==== */
 
 export default Tabell;
-
