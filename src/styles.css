@@ -107,15 +107,36 @@ body{
   width:12px;background:#fff;pointer-events:none;
 }
 /* ==== [BLOCK: Tabell – remove/hide internal vertical scrollbar] END ==== */
-/* ==== [BLOCK: Tabell – hide internal horizontal scrollbar] BEGIN ==== */
+/* ==== [BLOCK: Tabell – hide internal horizontal scrollbar HARD] BEGIN ==== */
+/* 1) Prøv å skjule horisontal scrollbar på tvers av varianter/ARIA */
 .tabell-grid .gdg-scrollbar-horizontal,
 .tabell-grid [class*="scrollbar-horizontal"],
-.tabell-grid div[role="scrollbar"][aria-orientation="horizontal"] {
-  display: none !important;
+.tabell-grid div[role="scrollbar"][aria-orientation="horizontal"]{
+  display:none !important;
 }
+
+/* 2) Hindrer at scroll-region viser X-scroll uansett */
 .tabell-grid .gdg-scroll-region,
 .tabell-grid [class*="scroll-region"],
-.tabell-grid .gdg-main {
-  overflow-x: hidden !important;
+.tabell-grid [class*="ScrollRegion"],
+.tabell-grid .gdg-main{
+  overflow-x:hidden !important;
+  scrollbar-width:none !important;              /* Firefox */
 }
-/* ==== [BLOCK: Tabell – hide internal horizontal scrollbar] END ==== */
+.tabell-grid .gdg-scroll-region::-webkit-scrollbar{
+  display:none !important; height:0 !important; /* WebKit */
+}
+
+/* 3) Fallback: fjern horisontal scrollbar-glider globalt i tabell-wrappen */
+.tabell-grid *::-webkit-scrollbar:horizontal{
+  height:0 !important;
+}
+/* ==== [BLOCK: Tabell – hide internal horizontal scrollbar HARD] END ==== */
+
+/* ==== [BLOCK: Tabell – bottom mask] BEGIN ==== */
+.tabell-hmask{
+  position:absolute;left:0;right:0;bottom:0;height:12px;
+  background:#fff;pointer-events:none;
+}
+/* ==== [BLOCK: Tabell – bottom mask] END ==== */
+
