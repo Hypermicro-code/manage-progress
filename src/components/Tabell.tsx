@@ -269,11 +269,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }));
   /* ==== [BLOCK: imperative handle] END ==== */
 
-  /* ==== [BLOCK: theme + sizing] BEGIN ==== */
+  /* ==== [BLOCK: Tabell theme + sizing] BEGIN ==== */
 const theme = useMemo(
   () => ({
-    headerHeight: HEADER_H,
-    rowHeight: ROW_H,
+    // Kun stil – ikke høyder
     headerFontColor: "#6b7280",
     headerBackgroundColor: "#ffffff",
     headerBottomBorder: "2px solid var(--line-strong)", // samme som Gantt
@@ -283,7 +282,8 @@ const theme = useMemo(
 
 // Hindre intern vertikal scroll ved å gi editoren “full” høyde
 const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
-/* ==== [BLOCK: theme + sizing] END ==== */
+/* ==== [BLOCK: Tabell theme + sizing] END ==== */
+
 
 /* ==== [BLOCK: Tabell render] BEGIN ==== */
 return (
@@ -306,12 +306,16 @@ return (
       rowMarkers="number"
       smoothScrollX
       smoothScrollY
+      /** Viktig: sett høyder som props for piksel-synk med Gantt */
+      headerHeight={HEADER_H}
+      rowHeight={ROW_H}
       theme={theme as any}
       onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
     />
   </div>
 );
 /* ==== [BLOCK: Tabell render] END ==== */
+
 });
 /* ==== [BLOCK: component] END ==== */
 
