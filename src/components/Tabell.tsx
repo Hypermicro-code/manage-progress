@@ -289,13 +289,13 @@ const editorHeight = Math.max(height, contentHeight);
 return (
   <div
     ref={containerRef}
-    className="hide-native-scrollbars"
+    className="hide-native-scrollbars tabell-grid"
     style={{ overflow: "hidden" }}
   >
     <DataEditor
       ref={editorRef}
       width="100%"
-      height={editorHeight}
+      height={editorHeight}          // = HEADER_H + rows*ROW_H (+ liten buffer i theme-blokka)
       rows={rows.length}
       columns={columns}
       getCellContent={getCellContent}
@@ -306,10 +306,8 @@ return (
       rowMarkers="number"
       smoothScrollX
       smoothScrollY
-      /** Viktig: tving samme høyder som Gantt */
       headerHeight={HEADER_H}
       rowHeight={ROW_H}
-      /** Slå av Glide sin ekstra overscroll nederst (ellers kan V-scroll dukke opp) */
       overscrollY={0}
       theme={theme as any}
       onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
@@ -317,6 +315,7 @@ return (
   </div>
 );
 /* ==== [BLOCK: Tabell render] END ==== */
+
 
 });
 /* ==== [BLOCK: component] END ==== */
