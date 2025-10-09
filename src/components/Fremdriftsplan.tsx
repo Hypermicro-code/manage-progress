@@ -21,6 +21,7 @@ type Props = {
 export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, apiBridge }: Props) {
   /* ==== [BLOCK: refs & local state] BEGIN ==== */
   const tabellRef = useRef<TabellHandle | null>(null);
+  const panelsRef = useRef<HTMLDivElement | null>(null);
 
   const [tableTotalWidth, setTableTotalWidth] = useState(1200);
   const [tableViewportWidth, setTableViewportWidth] = useState(600);
@@ -36,6 +37,11 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   const [zoom, setZoom] = useState<GanttZoom>("week");
   const [showWeekends, setShowWeekends] = useState(true);
   const [showToday, setShowToday] = useState(true);
+
+  /* Splitter: hvor stor andel av bredden Gantt får (0..1). Default 0.6 (40/60). */
+  const [ganttFrac, setGanttFrac] = useState(0.6);
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef<{ x: number; frac: number; w: number } | null>(null);
   /* ==== [BLOCK: refs & local state] END ==== */
 
   /* ==== [BLOCK: expose API upwards] BEGIN ==== */
@@ -52,8 +58,11 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
 
   /* ==== [BLOCK: dimensions] BEGIN ==== */
   const contentHeight = useMemo(() => HEADER_H + rows.length * ROW_H, [rows.length]);
+
   const tableSliderMax = Math.max(0, tableTotalWidth - tableViewportWidth);
   const ganttSliderMax = Math.max(0, ganttTotalWidth - ganttViewportWidth);
+
+  const tableFrac = 1 - ganttFrac;
   /* ==== [BLOCK: dimensions] END ==== */
 
   /* ==== [BLOCK: toolbar actions] BEGIN ==== */
@@ -63,6 +72,52 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   };
   const onCopySelected = () => tabellRef.current?.copySelectionToClipboard();
   /* ==== [BLOCK: toolbar actions] END ==== */
+
+  /* ==== [BLOCK: splitter handlers] BEGIN ==== */
+  const onSplitterDown = (e: React.MouseEvent | React.TouchEvent) => {
+    const startX = "touches" in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const w = panelsRef.current?.getBoundingClientRect().width ?? 1;
+    dragStart.current = { x: startX, frac: ganttFrac, w };
+    setDragging(true);
+    document.body.classList.add("no-select");
+  };
+
+  const onSplitterMove = (clientX: number) => {
+    if (!dragStart.current) return;
+    const { x, frac, w } = dragStart.current;
+    const dx = clientX - x;
+    const dFrac = dx / w; // positiv dx => større Gantt
+    const next = Math.min(1, Math.max(0, frac + dFrac));
+    setGanttFrac(next);
+  };
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const onMouseMove = (ev: MouseEvent) => onSplitterMove(ev.clientX);
+    const onTouchMove = (ev: TouchEvent) => onSplitterMove(ev.touches[0].clientX);
+    const onUp = () => {
+      setDragging(false);
+      dragStart.current = null;
+      document.body.classList.remove("no-select");
+    };
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("mouseup", onUp, { passive: true });
+    window.addEventListener("touchend", onUp, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove as any);
+      window.removeEventListener("touchmove", onTouchMove as any);
+      window.removeEventListener("mouseup", onUp as any);
+      window.removeEventListener("touchend", onUp as any);
+    };
+  }, [dragging]);
+
+  const onSplitterDoubleClick = () => {
+    // reset til 40/60 (Gantt 60%)
+    setGanttFrac(0.6);
+  };
+  /* ==== [BLOCK: splitter handlers] END ==== */
 
   /* ==== [BLOCK: render] BEGIN ==== */
   return (
@@ -95,7 +150,15 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
 
       {/* Felles scroll-host – eneste vertikale scroll */}
       <div className="scroll-host wide">
-        <div className="panels" style={{ minHeight: contentHeight }}>
+        {/* Panels med dynamiske kolonner basert på splitter */}
+        <div
+          ref={panelsRef}
+          className={`panels${dragging ? " panels-dragging" : ""}`}
+          style={{
+            minHeight: contentHeight,
+            gridTemplateColumns: `${Math.max(0, tableFrac * 100)}% 8px ${Math.max(0, ganttFrac * 100)}%`,
+          }}
+        >
           {/* === Tabell === */}
           <div className="panel" style={{ alignSelf: "start" }}>
             <Tabell
@@ -111,6 +174,17 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
               onScrollXChange={setTableScrollX}
             />
           </div>
+
+          {/* === Splitter === */}
+          <div
+            role="separator"
+            aria-label="Flytt skillelinje mellom Tabell og Gantt"
+            aria-orientation="vertical"
+            className="splitter"
+            onMouseDown={onSplitterDown}
+            onTouchStart={onSplitterDown}
+            onDoubleClick={onSplitterDoubleClick}
+          />
 
           {/* === Gantt === */}
           <div className="panel" style={{ alignSelf: "start" }}>
@@ -138,9 +212,9 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
               className="hslider"
               type="range"
               min={0}
-              max={tableSliderMax}
+              max={Math.max(0, tableTotalWidth - tableViewportWidth)}
               step={1}
-              value={Math.min(tableScrollX, tableSliderMax)}
+              value={Math.min(tableScrollX, Math.max(0, tableTotalWidth - tableViewportWidth))}
               onChange={(e) => {
                 const x = Number(e.currentTarget.value);
                 setTableScrollX(x);
@@ -154,9 +228,9 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
               className="hslider"
               type="range"
               min={0}
-              max={ganttSliderMax}
+              max={Math.max(0, ganttTotalWidth - ganttViewportWidth)}
               step={1}
-              value={Math.min(ganttScrollX, ganttSliderMax)}
+              value={Math.min(ganttScrollX, Math.max(0, ganttTotalWidth - ganttViewportWidth))}
               onChange={(e) => setGanttScrollX(Number(e.currentTarget.value))}
             />
           </div>
