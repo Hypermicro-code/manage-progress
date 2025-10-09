@@ -195,23 +195,31 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
   return (
     <div className="hide-native-scrollbars" style={{ overflow: "hidden" }}>
-      <DataEditor
-        ref={editorRef}
-        width="100%"
-        height={editorHeight}
-        rows={rows.length}
-        columns={columns}
-        getCellContent={getCellContent}
-        onCellEdited={onCellEdited}
-        onPaste={onPaste}
-        gridSelection={selection}
-        onGridSelectionChange={setSelection}
-        rowMarkers="number"
-        smoothScrollX
-        smoothScrollY
-        theme={theme as any}
-        onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
-      />
+      /* ==== [BLOCK: DataEditor props – editing + single-click] BEGIN ==== */
+<DataEditor
+  ref={editorRef}
+  width="100%"
+  height={editorHeight}
+  rows={rows.length}
+  columns={columns}
+  getCellContent={getCellContent}
+  onCellEdited={onCellEdited}
+  onPaste={onPaste}
+  gridSelection={selection}
+  onGridSelectionChange={setSelection}
+  rowMarkers="number"
+  smoothScrollX
+  smoothScrollY
+  theme={theme as any}
+  onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
+
+  /* Åpne editor på klikk for “skriv direkte”-følelse */
+  onCellClicked={(cell) => {
+    const [c, r] = cell;
+    editorRef.current?.openCell(c, r);
+  }}
+/>
+/* ==== [BLOCK: DataEditor props – editing + single-click] END ==== */
     </div>
   );
 });
