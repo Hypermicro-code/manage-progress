@@ -166,93 +166,117 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: getCellContent] END ==== */
 
   /* ==== [BLOCK: onCellEdited (v0.2 rules)] BEGIN ==== */
-  const onCellEdited = React.useCallback(
-    (item: Item, newValue: GridCell) => {
-      const [col, row] = item;
-      const key = TABLE_COLS[col].key as keyof Rad;
-      if (!rows[row]) return;
+const onCellEdited = React.useCallback(
+  (item: Item, newValue: GridCell) => {
+    const [col, row] = item;
+    const key = TABLE_COLS[col].key as keyof Rad;
+    if (!rows[row]) return;
 
-      // Hent dagens verdier for reglene
-      const curr = rows[row];
-      const startD = parseDate(String(curr.start || ""));
-      const sluttD = parseDate(String(curr.slutt || ""));
-      const varighetN = typeof curr.varighet === "number"
-        ? curr.varighet
-        : Number(String(curr.varighet ?? "").replace(",", "."));
+    // ---- Normaliser innkommende verdi
+    let editedVal: any = "";
+    if (newValue.kind === GridCellKind.Number) {
+      editedVal =
+        typeof newValue.data === "number" && !Number.isNaN(newValue.data)
+          ? newValue.data
+          : "";
+    } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
+      editedVal = (newValue.data ?? "") as any;
+    } else {
+      editedVal = (newValue as any).data ?? (newValue as any).displayData ?? "";
+    }
 
-      const commit = (k: keyof Rad, v: any) => setCell(row, k, v as any);
+    // ---- Lokal snapshot av raden *etter* redigeringen
+    const curr = rows[row];
+    const nextRow: Rad = { ...curr, [key]: editedVal } as Rad;
 
-      // Oppdater feltet som ble redigert
-      let editedVal: any = undefined;
-      if (newValue.kind === GridCellKind.Number) {
-        editedVal =
-          typeof newValue.data === "number" && !Number.isNaN(newValue.data)
-            ? newValue.data
-            : "";
-        commit(key, editedVal);
-      } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
-        editedVal = (newValue.data ?? "") as any;
-        commit(key, editedVal);
-      } else {
-        // andre typer – bare commit original display/data
-        const raw = (newValue as any).data ?? (newValue as any).displayData ?? "";
-        commit(key, raw);
+    // ---- Hjelpere (kalender-agnostisk)
+    const toDate = (s: any): Date | null => {
+      const str = String(s ?? "").trim();
+      if (!str) return null;
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+      if (m) {
+        const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
+        const dt = new Date(y, mo, d);
+        dt.setHours(0, 0, 0, 0);
+        return isNaN(dt.getTime()) ? null : dt;
       }
+      const dt = new Date(str);
+      if (isNaN(dt.getTime())) return null;
+      dt.setHours(0, 0, 0, 0);
+      return dt;
+    };
+    const addDays = (d: Date, n: number) => {
+      const x = new Date(d);
+      x.setDate(x.getDate() + n);
+      x.setHours(0, 0, 0, 0);
+      return x;
+    };
+    const fmt = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const da = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${da}`;
+    };
+    const toNum = (n: any): number | null => {
+      const v = Number(String(n ?? "").replace(",", "."));
+      return Number.isFinite(v) ? v : null;
+    };
+    const diffDaysInclusive = (a: Date, b: Date) => {
+      const ms = b.getTime() - a.getTime();
+      return Math.floor(ms / (1000 * 60 * 60 * 24)) + 1;
+    };
 
-      // Etter at feltet er oppdatert, kjør reglene
-      // Re-les relevante felt for presis beregning:
-      const getRow = () => rows[row];
+    // ---- Beregn avhengigheter på snapshotet
+    const s = toDate(nextRow.start);
+    const e = toDate(nextRow.slutt);
+    const d = toNum(nextRow.varighet);
 
-      // Sanitizer helpers
-      const toDateOrNull = (s: any) => parseDate(String(s ?? "").trim());
-      const toNumOrNull = (n: any) => {
-        const v = Number(String(n ?? "").replace(",", "."));
-        return Number.isFinite(v) ? v : null;
-      };
+    // Commit primærfeltet først (det brukeren redigerte)
+    setCell(row, key, editedVal as any);
 
-      // NB: Reglene er kalender-agnostiske, og bruker inklusiv varighet
-      setTimeout(() => {
-        const rNow = getRow();
+    // Regel 1: Start + Varighet → Slutt
+    if (s && d && d > 0) {
+      const newEnd = addDays(s, d - 1);
+      const newEndStr = fmt(newEnd);
+      if (nextRow.slutt !== newEndStr) {
+        setCell(row, "slutt", newEndStr as any);
+      }
+    }
 
-        const sNow = toDateOrNull(rNow.start);
-        const eNow = toDateOrNull(rNow.slutt);
-        const durNow = toNumOrNull(rNow.varighet);
+    // Regel 2: Start + Slutt → Varighet
+    if (s && e && e.getTime() >= s.getTime()) {
+      const newDur = diffDaysInclusive(s, e);
+      if (toNum(nextRow.varighet) !== newDur) {
+        setCell(row, "varighet", newDur as any);
+      }
+    } else if (key === "slutt" && s && !e) {
+      // Satt slutt til tomt: nullstill varighet (unngå stale tall)
+      setCell(row, "varighet", "" as any);
+    }
 
-        // Regel 1: Endrer bruker Start + Varighet → regn ut Slutt
-        if (key === "start") {
-          if (sNow && durNow && durNow > 0) {
-            const newEnd = addDays(sNow, Math.max(0, durNow - 1));
-            commit("slutt", formatDate(newEnd));
-          } else if (sNow && !durNow && eNow) {
-            // Hvis Start + Slutt finnes (men ikke varighet), hold slutt – varighet kalkuleres i regel 2 (under)
-          }
+    // Regel 3: Varighet alene (med Start) → Slutt
+    if (key === "varighet" && s) {
+      const dur = toNum(editedVal);
+      if (dur && dur > 0) {
+        const newEnd = addDays(s, dur - 1);
+        const newEndStr = fmt(newEnd);
+        if (nextRow.slutt !== newEndStr) {
+          setCell(row, "slutt", newEndStr as any);
         }
+      }
+    }
 
-        // Regel 2: Start + Slutt → Varighet
-        if (key === "slutt" || key === "start") {
-          const s2 = toDateOrNull(getRow().start);
-          const e2 = toDateOrNull(getRow().slutt);
-          if (s2 && e2 && e2.getTime() >= s2.getTime()) {
-            const d = diffDaysInclusive(s2, e2);
-            commit("varighet", d);
-          }
-        }
+    // Robusthet: Rydd opp ugyldige kombinasjoner (ingen NaN/tekstlukter)
+    // - Hvis slutt < start → ikke sett varighet automatisk
+    if (s && e && e.getTime() < s.getTime()) {
+      // Behold brukerens input, men ikke sett varighet feil; la den stå tom
+      setCell(row, "varighet", "" as any);
+    }
+  },
+  [rows, setCell]
+);
+/* ==== [BLOCK: onCellEdited (v0.2 rules)] END ==== */
 
-        // Regel 3: Varighet alene → oppdater Slutt (hvis Start finnes)
-        if (key === "varighet") {
-          const dur3 = toNumOrNull(getRow().varighet);
-          const s3 = toDateOrNull(getRow().start);
-          if (s3 && dur3 && dur3 > 0) {
-            const newEnd = addDays(s3, Math.max(0, dur3 - 1));
-            commit("slutt", formatDate(newEnd));
-          }
-          // Hvis varighet settes tom/ugyldig – ikke rør slutt (akseptkriteriet: ingen NaN/tekstlukter)
-        }
-      }, 0);
-    },
-    [rows, setCell]
-  );
-  /* ==== [BLOCK: onCellEdited (v0.2 rules)] END ==== */
 
   /* ==== [BLOCK: selection state + lift] BEGIN ==== */
   const [selection, setSelection] = useState<GridSelection>({
