@@ -8,23 +8,41 @@
 html,body,#root{height:100%}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;background:var(--bg);color:var(--txt)}
 
-/* ==== [BLOCK: wrapper wider] BEGIN ==== */
-.wrapper{
-  max-width: 1800px;   /* drar panelene lenger ut */
-  margin:16px auto;
-  padding:0 8px;       /* litt luft mot kant */
+/* ==== [BLOCK: responsive frame padding] BEGIN ==== */
+:root{
+  --frame-pad: 20px; /* ca. 20px “luft” på hver side */
 }
-/* ==== [BLOCK: wrapper wider] END ==== */
+.wrapper{
+  width: 100%;
+  max-width: none;           /* ingen kunstig maks */
+  margin: 16px auto;
+  padding-left: var(--frame-pad);
+  padding-right: var(--frame-pad);
+}
+/* ==== [BLOCK: responsive frame padding] END ==== */
 
 /* Verktøylinje */
 .toolbar{display:flex;gap:8px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 10px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
 .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 
-/* ==== [BLOCK: panels gap + full-width feel] BEGIN ==== */
-.panels{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;min-height:520px}
-.scroll-host.wide{border-radius:12px}
-/* ==== [BLOCK: panels gap + full-width feel] END ==== */
+/* ==== [BLOCK: panels grid – tighter gap] BEGIN ==== */
+.panels{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;                 /* litt, men ikke for mye luft mellom panelene */
+  align-items:start;
+  min-height:520px;
+}
+/* ==== [BLOCK: panels grid – tighter gap] END ==== */
+
+/* ==== [BLOCK: scroll-host height for sticky footer] BEGIN ==== */
+.scroll-host{
+  height: calc(100vh - 160px); /* toolbar + footer */
+  overflow: auto;
+  border-radius: 12px;
+}
+/* ==== [BLOCK: scroll-host height for sticky footer] END ==== */
 
 /* Panelkort */
 .panel{
