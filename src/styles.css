@@ -27,7 +27,10 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantare
 
 /* Panelkort */
 .panel{
-  background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.04);
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:0;              /* <- fjern avrunding på panelene */
+  box-shadow:0 6px 18px rgba(0,0,0,.04);
   overflow:hidden;
 }
 
