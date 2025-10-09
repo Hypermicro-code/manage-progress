@@ -1,5 +1,5 @@
 // Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
-// v0.2.4: Enkeltklikk = rediger + liten date-popover for Start/Slutt + fleksibel parsing + prompt + tapsfri skriving
+// v0.2.4-fix: Fjern openCellEditor (ikke i vår Glide-versjon). Enkeltklikk + date-popover + fleksibel parsing + prompt + tapsfri skriving.
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -322,7 +322,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }, [selection, getCellString]);
   /* ==== [BLOCK: copy helpers] END ==== */
 
-  /* ==== [BLOCK: global key/mouse handlers – single-click edit + date popover + copy + lossless typing] BEGIN ==== */
+  /* ==== [BLOCK: global key/mouse handlers – single-click helpers + date popover + copy + lossless typing] BEGIN ==== */
   useEffect(() => {
     // Husk siste klikkposisjon for å posisjonere date-popover
     const onMouseDown = (e: MouseEvent) => {
@@ -396,7 +396,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       const navKeys = ["Enter","Escape","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab"];
       if (navKeys.includes(e.key)) {
         typeBufRef.current = null;
-        if (typeBufTimerRef.current) { window.clearTimeout(typeBufTimerRef.current); typeBufTimerRef.current = null; }
+        if (typeBufTimerRef.current) {
+          window.clearTimeout(typeBufTimerRef.current);
+          typeBufTimerRef.current = null;
+        }
         return;
       }
 
@@ -440,7 +443,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       window.removeEventListener("keydown", onKeyDown as any, { capture: true } as any);
     };
   }, [rows, selection, setCell, copySelectionToClipboard]);
-  /* ==== [BLOCK: global key/mouse handlers – single-click edit + date popover + copy + lossless typing] END ==== */
+  /* ==== [BLOCK: global key/mouse handlers – single-click helpers + date popover + copy + lossless typing] END ==== */
 
   /* ==== [BLOCK: imperative handle] BEGIN ==== */
   useImperativeHandle(ref, () => ({
@@ -475,14 +478,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       ref={containerRef}
       className="hide-native-scrollbars tabell-grid"
       style={{ overflow: "hidden", position: "relative" }}
-      onDoubleClick={(e) => {
-        // fallback: hvis noen miljø krever, åpne editor ved dobbeltklikk også
-        if (!selection.current) return;
-        const { x, y, width, height } = selection.current.range;
-        if (width === 1 && height === 1) {
-          editorRef.current?.openCellEditor?.([x, y]);
-        }
-      }}
     >
       <DataEditor
         ref={editorRef}
@@ -509,12 +504,8 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           const top = Math.floor(yRows / ROW_H);
           onTopRowChange?.(top);
         }}
-        // <- NYTT: enkeltklikk åpner overlay-editor
+        // Enkeltklikk-aktivering: vi åpner *bare* vår date-popover for start/slutt.
         onCellActivated={(cell) => {
-          // Åpne editor umiddelbart
-          editorRef.current?.openCellEditor?.(cell);
-
-          // Hvis Start/Slutt: åpne date-popover ved enkeltklikk
           const [col, row] = cell;
           const key = TABLE_COLS[col].key as keyof Rad;
           if (key === "start" || key === "slutt") {
@@ -522,7 +513,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
             const pos = lastClickPos.current || { x: 20, y: 20 };
             setDatePop({ open: true, row, col, key, value: val, x: pos.x, y: pos.y });
           } else {
-            // Lukk om vi aktiverer annen kolonne
             if (datePop?.open) setDatePop(null);
           }
         }}
@@ -555,7 +545,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           value={datePop.value}
           onChange={(iso) => {
             setCell(datePop.row, datePop.key, iso as any);
-            // trigger regler via en syntetisk “onCellEdited”-vei:
+            // trigge regler (auto path) etter setting
             const nextRow: Rad = { ...rows[datePop.row], [datePop.key]: iso } as Rad;
             const plan = planAfterEdit(nextRow, datePop.key);
             if (plan.autoPatch) {
@@ -723,7 +713,6 @@ function DatePopover({
         <button
           className="btn primary"
           onClick={() => {
-            // Normaliser streng for sikkerhets skyld
             const { normalized } = canonicalizeDateInput(val);
             if (normalized) onChange(normalized);
             else onCancel();
