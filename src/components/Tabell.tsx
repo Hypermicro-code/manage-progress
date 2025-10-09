@@ -279,7 +279,7 @@ useEffect(() => {
   className="hide-native-scrollbars"
   style={{ overflow: "hidden" }}
 >
-      /* ==== [BLOCK: DataEditor element – FIX] BEGIN ==== */
+      {/* ==== [BLOCK: DataEditor element – FIX] BEGIN ==== */}
 <DataEditor
   ref={editorRef}
   width="100%"
@@ -297,7 +297,7 @@ useEffect(() => {
   theme={theme as any}
   onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
 />
-/* ==== [BLOCK: DataEditor element – FIX] END ==== */
+      {/* ==== [BLOCK: DataEditor element – FIX] END ==== */}
     </div>
   );
 });
