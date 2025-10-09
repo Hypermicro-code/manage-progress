@@ -124,3 +124,19 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantare
   overflow-y: hidden !important;
 }
 /* ==== [BLOCK: Tabell – nuke internal vertical scrollbar] END ==== */
+/* ==== [BLOCK: Tabell – mask vertical scrollbar] BEGIN ==== */
+.tabell-grid {
+  position: relative;
+}
+.tabell-vmask {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 12px;              /* bredde > Glide sin scrollbar (~8–10px) */
+  background: #fff;         /* samme som panelbakgrunn */
+  pointer-events: none;     /* ikke blokker klikk/drag i griden */
+}
+/* ==== [BLOCK: Tabell – mask vertical scrollbar] END ==== */
+
+/* (behold gjerne tidligere “nuke”-regler også; denne masken er siste forsvarslinje) */
