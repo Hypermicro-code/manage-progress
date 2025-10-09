@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Tabell, { TabellHandle } from "./Tabell";
-import GanttDiagram, { GanttZoom } from "./GanttDiagram";
-import { HEADER_H, ROW_H, GANTT_ZOOM_PX } from "../core/layout";
+import GanttDiagram from "./GanttDiagram";
+import { HEADER_H, ROW_H, GANTT_ZOOM_PX, type GanttZoom } from "../core/layout";
 import type { Rad, KolonneKey } from "../core/types";
 
 /* ==== [BLOCK: props] BEGIN ==== */
@@ -90,7 +90,7 @@ export default function Fremdriftsplan({
     if (!host || !tablePanel) return;
 
     const updateTop = () => {
-      // Panel-header er fjernet; men DataEditor har egen header (HEADER_H) før datarader
+      // DataEditor har egen header (HEADER_H) før datarader
       const baseY = getRelativeTop(tablePanel, host) + HEADER_H;
       const y = host.scrollTop;
       const top = Math.max(0, Math.floor((y - baseY) / ROW_H));
