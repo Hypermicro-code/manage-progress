@@ -45,9 +45,13 @@ body{
 
 /* ==== [BLOCK: scroll-host] BEGIN ==== */
 .scroll-host{
-  height:calc(100vh - 160px);   /* plass til toolbar + footer */
-  overflow:auto;
-  border-radius:12px;
+  .scroll-host {
+  height: calc(100vh - 162px); /* 2px ekstra buffer hindrer overløp */
+  overflow: auto;
+  border-radius: 12px;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
 }
 /* Skjul native scrollbars uten å deaktivere programmatisk scrolling */
 .hide-native-scrollbars::-webkit-scrollbar{display:none}
