@@ -279,10 +279,12 @@ const theme = useMemo(
   }),
   []
 );
-const contentHeight = HEADER_H + rows.length * ROW_H + 6;
-const editorHeight = Math.max(height, contentHeight);
-  
+
+// Gi editoren klart mer høyde enn innholdet for å unngå intern V-scroll
+// +12 px buffer tar høyde for borders/subpixel og Glide sitt overheng
+const editorHeight = HEADER_H + rows.length * ROW_H + 12;
 /* ==== [BLOCK: Tabell theme + sizing] END ==== */
+
 
 
 /* ==== [BLOCK: Tabell render] BEGIN ==== */
@@ -305,7 +307,7 @@ return (
       onGridSelectionChange={setSelection}
       rowMarkers="number"
       smoothScrollX
-      smoothScrollY
+      smoothScrollY={false}
       headerHeight={HEADER_H}
       rowHeight={ROW_H}
       overscrollY={0}
