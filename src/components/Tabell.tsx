@@ -1,6 +1,6 @@
 // Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
-// v0.2.6: Native enkel-klikk/Tab-skriving (ingen global key-interception), kalender på dobbeltklikk/Alt+↓,
-//         direkte datovalg (uten bekreftelse), fleksibel parsing + rekalkuleringsprompt
+// v0.2.7: Fjern “boble” ved dobbelklikk – vi fanger dblclick på containeren og åpner kun vår kalender.
+//         Native skriving ved enkeltklikk/Tab, kalender på dobbelklikk/Alt+↓, fleksibel parsing, prompt.
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -130,14 +130,14 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           displayData: numStr,
           data: numStr === "" ? undefined : Number(numStr),
           allowOverlay: true,
-        };
+        } as GridCell;
       }
       return {
         kind: GridCellKind.Text,
         displayData: String(v ?? ""),
         data: String(v ?? ""),
         allowOverlay: true,
-      };
+      } as GridCell;
     },
     [rows]
   );
@@ -152,10 +152,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
       let editedVal: any = "";
       if (newValue.kind === GridCellKind.Number) {
-        editedVal =
-          typeof newValue.data === "number" && !Number.isNaN(newValue.data)
-            ? newValue.data
-            : "";
+        editedVal = typeof newValue.data === "number" && !Number.isNaN(newValue.data) ? newValue.data : "";
       } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
         editedVal = (newValue.data ?? "") as any;
       } else {
@@ -302,7 +299,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }, [selection, getCellString]);
   /* ==== [BLOCK: copy helpers] END ==== */
 
-  /* ==== [BLOCK: dblclick + Alt+↓ calendar hooks] BEGIN ==== */
+  /* ==== [BLOCK: calendar hooks – Alt+↓ + posisjon] BEGIN ==== */
   useEffect(() => {
     // Husk siste klikkposisjon (for popover-posisjon)
     const onMouseDown = (e: MouseEvent) => {
@@ -312,20 +309,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       lastClickPos.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
     window.addEventListener("mousedown", onMouseDown, { capture: true });
-
-    // Dobbeltklikk: åpne kalender hvis start/slutt
-    const onDoubleClick = () => {
-      if (!selection.current) return;
-      const { x, y, width, height } = selection.current.range;
-      if (width !== 1 || height !== 1) return;
-      const colKey = TABLE_COLS[x].key as keyof Rad;
-      if (colKey !== "start" && colKey !== "slutt") return;
-      const rowIndex = y;
-      const value = String(rows[rowIndex]?.[colKey] ?? "");
-      const pos = lastClickPos.current || { x: 20, y: 20 };
-      setDatePop({ open: true, row: rowIndex, col: x, key: colKey, value, x: pos.x, y: pos.y });
-    };
-    window.addEventListener("dblclick", onDoubleClick, { capture: true });
 
     // Alt+PilNed: åpne kalender på start/slutt
     const onKeyDown = (e: KeyboardEvent) => {
@@ -353,11 +336,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
     return () => {
       window.removeEventListener("mousedown", onMouseDown as any, { capture: true } as any);
-      window.removeEventListener("dblclick", onDoubleClick as any, { capture: true } as any);
       window.removeEventListener("keydown", onKeyDown as any, { capture: true } as any);
     };
   }, [rows, selection]);
-  /* ==== [BLOCK: dblclick + Alt+↓ calendar hooks] END ==== */
+  /* ==== [BLOCK: calendar hooks – Alt+↓ + posisjon] END ==== */
 
   /* ==== [BLOCK: imperative handle] BEGIN ==== */
   useImperativeHandle(ref, () => ({
@@ -392,6 +374,27 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       ref={containerRef}
       className="hide-native-scrollbars tabell-grid"
       style={{ overflow: "hidden", position: "relative" }}
+      onDoubleClick={(e) => {
+        // <- FANG dblclick TIDLIG: ingen bubbling til grid = ingen “boble”-effekt
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (!selection.current) return;
+        const { x, y, width, height } = selection.current.range;
+        if (width !== 1 || height !== 1) return;
+
+        const colKey = TABLE_COLS[x].key as keyof Rad;
+        if (colKey !== "start" && colKey !== "slutt") return;
+
+        const rowIndex = y;
+        const value = String(rows[rowIndex]?.[colKey] ?? "");
+        const rect = containerRef.current?.getBoundingClientRect();
+        const pos = rect
+          ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
+          : lastClickPos.current || { x: 20, y: 20 };
+
+        setDatePop({ open: true, row: rowIndex, col: x, key: colKey, value, x: pos.x, y: pos.y });
+      }}
     >
       <DataEditor
         ref={editorRef}
