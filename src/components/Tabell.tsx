@@ -267,7 +267,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         const ta = document.createElement("textarea");
         ta.value = tsv;
         ta.style.position = "fixed";
-        ta.style.left: "-9999px";
+        ta.style.left = "-9999px";
         document.body.appendChild(ta);
         ta.select();
         try { document.execCommand("copy"); } catch {}
