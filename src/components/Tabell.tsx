@@ -311,8 +311,6 @@ return (
       theme={theme as any}
       onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
     />
-  </div>
-);
 /* ==== [BLOCK: Tabell render] END ==== */
       {/* Tegn samme bunnlinje som i Gantt-headeren (2px var(--line-strong)) */}
       <div
