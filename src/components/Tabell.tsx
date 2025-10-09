@@ -282,14 +282,30 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: imperative handle] END ==== */
 
   /* ==== [BLOCK: Tabell theme + sizing] BEGIN ==== */
-  const theme = useMemo(
-    () => ({
-      headerFontColor: "#6b7280",
-      headerBackgroundColor: "#ffffff",
-      headerBottomBorder: "2px solid var(--line-strong)",
-    }),
-    []
-  );
+  /* ==== [BLOCK: Tabell theme + sizing] BEGIN ==== */
+const theme = useMemo(
+  () => ({
+    // Farger og linjer – tydelig kontrast
+    headerFontColor: "#111",
+    headerBackgroundColor: "#ffffff",
+    headerBottomBorder: "2px solid #000", // sort skille mellom header og rader
+
+    // Gridlinjer i tabellen
+    accentColor: "#000",                // fokusramme + utvalg
+    borderColor: "#000",                // kolonnegrenser og radlinjer
+    horizontalBorderColor: "#000",      // mellom rader
+    verticalBorderColor: "#000",        // mellom kolonner
+    gridLineColor: "#000",              // fallback i noen Glide-versjoner
+
+    // Tekst
+    textDark: "#111",
+    textMedium: "#111",
+    textLight: "#111",
+  }),
+  []
+);
+/* ==== [BLOCK: Tabell theme + sizing] END ==== */
+
 
   // Editorhøyde > innhold for å unngå intern V-scroll (liten buffer)
   const editorHeight = HEADER_H + rows.length * ROW_H + 20;
