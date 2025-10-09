@@ -142,9 +142,11 @@ body{
 
 /* ==== [BLOCK: splitter styles] BEGIN ==== */
 .splitter{
+  align-self: stretch;                 /* <- tving full høyde i grid-raden */
+  height: auto;                        /* la grid styre høyden */
   background: linear-gradient(to right, transparent, var(--line) 40%, transparent);
   cursor: col-resize;
-  width: 8px; /* matcher gridTemplateColumns “8px” */
+  width: 10px;                         /* litt bredere “hit area” */
   user-select: none;
 }
 .panels-dragging .splitter{
@@ -155,3 +157,4 @@ body{
   user-select: none !important;
 }
 /* ==== [BLOCK: splitter styles] END ==== */
+
