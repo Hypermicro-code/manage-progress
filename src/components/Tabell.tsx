@@ -1,6 +1,6 @@
 // Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
-// v0.2.5: Enkeltklikk/Tab = skriving, Dobbeltklikk = kalender (Start/Slutt), direkte valg uten bekreftelsesknapp
-//  + fleksibel parsing + rekalkuleringsprompt + tapsfri skriving
+// v0.2.6: Native enkel-klikk/Tab-skriving (ingen global key-interception), kalender på dobbeltklikk/Alt+↓,
+//         direkte datovalg (uten bekreftelse), fleksibel parsing + rekalkuleringsprompt
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -71,30 +71,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   const editorRef = useRef<DataEditorRef | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   /* ==== [BLOCK: refs] END ==== */
-
-  /* ==== [BLOCK: speedy typing buffer – refs & helpers] BEGIN ==== */
-  const typeBufRef = useRef<{ row: number; col: number; value: string } | null>(null);
-  const typeBufTimerRef = useRef<number | null>(null);
-
-  function clearTypeBufSoon(ms = 500) {
-    if (typeBufTimerRef.current) window.clearTimeout(typeBufTimerRef.current);
-    typeBufTimerRef.current = window.setTimeout(() => {
-      typeBufRef.current = null;
-      typeBufTimerRef.current = null;
-    }, ms);
-  }
-  function isPrintableKey(e: KeyboardEvent): boolean {
-    if (e.ctrlKey || e.metaKey || e.altKey) return false;
-    return e.key.length === 1;
-  }
-  function sanitizeForColumn(colKey: string, raw: string): string {
-    if (colKey === "varighet" || colKey === "ap" || colKey === "pp") {
-      const s = raw.replace(/,/g, ".").replace(/[^0-9.]+/g, "");
-      return s;
-    }
-    return raw;
-  }
-  /* ==== [BLOCK: speedy typing buffer – refs & helpers] END ==== */
 
   /* ==== [BLOCK: prompt state] BEGIN ==== */
   const [prompt, setPrompt] = useState<(RecalcPromptMeta & { row: number }) | null>(null);
@@ -176,7 +152,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
       let editedVal: any = "";
       if (newValue.kind === GridCellKind.Number) {
-        editedVal = typeof newValue.data === "number" && !Number.isNaN(newValue.data) ? newValue.data : "";
+        editedVal =
+          typeof newValue.data === "number" && !Number.isNaN(newValue.data)
+            ? newValue.data
+            : "";
       } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
         editedVal = (newValue.data ?? "") as any;
       } else {
@@ -323,7 +302,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }, [selection, getCellString]);
   /* ==== [BLOCK: copy helpers] END ==== */
 
-  /* ==== [BLOCK: global key/mouse handlers – dblclick calendar + Alt+↓ + copy + lossless typing] BEGIN ==== */
+  /* ==== [BLOCK: dblclick + Alt+↓ calendar hooks] BEGIN ==== */
   useEffect(() => {
     // Husk siste klikkposisjon (for popover-posisjon)
     const onMouseDown = (e: MouseEvent) => {
@@ -335,7 +314,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     window.addEventListener("mousedown", onMouseDown, { capture: true });
 
     // Dobbeltklikk: åpne kalender hvis start/slutt
-    const onDoubleClick = (_e: MouseEvent) => {
+    const onDoubleClick = () => {
       if (!selection.current) return;
       const { x, y, width, height } = selection.current.range;
       if (width !== 1 || height !== 1) return;
@@ -348,6 +327,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     };
     window.addEventListener("dblclick", onDoubleClick, { capture: true });
 
+    // Alt+PilNed: åpne kalender på start/slutt
     const onKeyDown = (e: KeyboardEvent) => {
       const within =
         containerRef.current &&
@@ -355,108 +335,29 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           containerRef.current.contains(document.activeElement));
       if (!within) return;
 
-      // Alt+PilNed: åpne kalender på start/slutt
-      if (selection.current) {
-        const { x, y, width, height } = selection.current.range;
-        if (width === 1 && height === 1) {
-          const colKey = TABLE_COLS[x].key as keyof Rad;
-          if ((colKey === "start" || colKey === "slutt") && e.altKey && e.key === "ArrowDown") {
-            e.preventDefault(); e.stopPropagation();
-            const rowIndex = y;
-            const value = String(rows[rowIndex]?.[colKey] ?? "");
-            const pos = lastClickPos.current || { x: 20, y: 20 };
-            setDatePop({ open: true, row: rowIndex, col: x, key: colKey, value, x: pos.x, y: pos.y });
-            return;
-          }
-        }
-      }
-
-      // Kopi / tapsfri skriving / osv.
-      if (!selection.current) {
-        const isMac = navigator.platform.toLowerCase().includes("mac");
-        const mod = isMac ? e.metaKey : e.ctrlKey;
-        if (mod && e.key.toLowerCase() === "c") {
-          const handled = copySelectionToClipboard();
-          if (handled) { e.preventDefault(); e.stopPropagation(); }
-        }
-        return;
-      }
-
+      if (!selection.current) return;
       const { x, y, width, height } = selection.current.range;
-      const isMac = navigator.platform.toLowerCase().includes("mac");
-      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (width !== 1 || height !== 1) return;
 
-      // Multi-utvalg → kun kopiering
-      if (width !== 1 || height !== 1) {
-        if (mod && e.key.toLowerCase() === "c") {
-          const handled = copySelectionToClipboard();
-          if (handled) { e.preventDefault(); e.stopPropagation(); }
-        }
-        return;
-      }
-
-      const colIndex = x;
-      const rowIndex = y;
-      const colKey = TABLE_COLS[colIndex].key as keyof Rad;
-      const row = rows[rowIndex];
-
-      // Kopiering
-      if (mod && e.key.toLowerCase() === "c") {
-        const handled = copySelectionToClipboard();
-        if (handled) { e.preventDefault(); e.stopPropagation(); }
-        return;
-      }
-
-      // Navigasjon/commit – tøm buffer
-      const navKeys = ["Enter","Escape","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Tab"];
-      if (navKeys.includes(e.key)) {
-        typeBufRef.current = null;
-        if (typeBufTimerRef.current) { window.clearTimeout(typeBufTimerRef.current); typeBufTimerRef.current = null; }
-        return;
-      }
-
-      // Backspace/Delete
-      if (e.key === "Backspace" || e.key === "Delete") {
-        e.preventDefault(); e.stopPropagation();
-        const base =
-          typeBufRef.current &&
-          typeBufRef.current.row === rowIndex &&
-          typeBufRef.current.col === colIndex
-            ? typeBufRef.current.value
-            : String(row?.[colKey] ?? "");
-        const next = e.key === "Backspace" ? base.slice(0, -1) : "";
-        const cleaned = sanitizeForColumn(String(colKey), next);
-        setCell(rowIndex, colKey, cleaned as any);
-        typeBufRef.current = { row: rowIndex, col: colIndex, value: cleaned };
-        clearTypeBufSoon();
-        return;
-      }
-
-      // Skrivbar tast → tapsfri
-      if (isPrintableKey(e)) {
-        e.preventDefault(); e.stopPropagation();
-        const baseActive =
-          typeBufRef.current &&
-          typeBufRef.current.row === rowIndex &&
-          typeBufRef.current.col === colIndex;
-        const seed = baseActive ? typeBufRef.current!.value : "";
-        const nextRaw = seed + e.key;
-        const next = sanitizeForColumn(String(colKey), nextRaw);
-        setCell(rowIndex, colKey, next as any);
-        typeBufRef.current = { row: rowIndex, col: colIndex, value: next };
-        clearTypeBufSoon();
-        return;
+      const colKey = TABLE_COLS[x].key as keyof Rad;
+      if ((colKey === "start" || colKey === "slutt") && e.altKey && e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        const rowIndex = y;
+        const value = String(rows[rowIndex]?.[colKey] ?? "");
+        const pos = lastClickPos.current || { x: 20, y: 20 };
+        setDatePop({ open: true, row: rowIndex, col: x, key: colKey, value, x: pos.x, y: pos.y });
       }
     };
-
     window.addEventListener("keydown", onKeyDown, { capture: true });
+
     return () => {
       window.removeEventListener("mousedown", onMouseDown as any, { capture: true } as any);
       window.removeEventListener("dblclick", onDoubleClick as any, { capture: true } as any);
       window.removeEventListener("keydown", onKeyDown as any, { capture: true } as any);
     };
-  }, [rows, selection, setCell, copySelectionToClipboard]);
-  /* ==== [BLOCK: global key/mouse handlers – dblclick calendar + Alt+↓ + copy + lossless typing] END ==== */
+  }, [rows, selection]);
+  /* ==== [BLOCK: dblclick + Alt+↓ calendar hooks] END ==== */
 
   /* ==== [BLOCK: imperative handle] BEGIN ==== */
   useImperativeHandle(ref, () => ({
@@ -677,11 +578,8 @@ function DatePopover({
 
   useEffect(() => {
     const input = ref.current?.querySelector('input[type="date"]') as HTMLInputElement | null;
-    if (input) {
-      input.focus();
-      // Åpne native picker hvis støttet
-      input.showPicker?.();
-    }
+    input?.focus();
+    input?.showPicker?.();
   }, []);
 
   return (
@@ -710,7 +608,6 @@ function DatePopover({
         onChange={(e) => {
           const next = e.currentTarget.value;
           setVal(next);
-          // Sett dato umiddelbart og lukk
           const { normalized } = canonicalizeDateInput(next);
           if (normalized) onChange(normalized);
           else onCancel();
@@ -718,7 +615,7 @@ function DatePopover({
         style={{ padding: "6px 8px", minWidth: 210 }}
       />
       <div style={{ fontSize: 11, color: "#6b7280" }}>
-        Dobbeltklikk for å velge dato. Alt+↓ åpner også kalender.
+        Dobbeltklikk Start/Slutt for kalender. Alt+↓ åpner også.
       </div>
     </div>
   );
