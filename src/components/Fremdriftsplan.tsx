@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Tabell, { TabellHandle } from "./Tabell";
 import GanttDiagram from "./GanttDiagram";
+import ProsjektInfoModal, { type ProsjektInfo } from "./ProsjektInfoModal";
+import HjelpFaqPanel from "./HjelpFaqPanel";
 import { HEADER_H, ROW_H, GANTT_ZOOM_PX, type GanttZoom } from "../core/layout";
 import type { Rad, KolonneKey } from "../core/types";
 
@@ -42,6 +44,18 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   const [ganttFrac, setGanttFrac] = useState(0.6);
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef<{ x: number; frac: number; w: number } | null>(null);
+
+  /* Prosjekt-info v0.2 (runtime) */
+  const [prosjekt, setProsjekt] = useState<ProsjektInfo>({
+    navn: "",
+    prosjektId: "",
+    eier: "",
+    start: "",
+    slutt: "",
+    beskrivelse: "",
+  });
+  const [showProsjektModal, setShowProsjektModal] = useState(false);
+  const [showHjelp, setShowHjelp] = useState(false);
   /* ==== [BLOCK: refs & local state] END ==== */
 
   /* ==== [BLOCK: expose API upwards] BEGIN ==== */
@@ -83,14 +97,13 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   };
 
   const onSplitterMove = (clientX: number) => {
-  if (!dragStart.current) return;
-  const { x, frac, w } = dragStart.current;
-  const dx = clientX - x;        // >0 når du drar mot høyre
-  const dFrac = dx / w;          // konverter px → andel av total bredde
-  // Viktig: trekk fra, så splitteren følger pekeren
-  const next = Math.min(1, Math.max(0, frac - dFrac));
-  setGanttFrac(next);
-};
+    if (!dragStart.current) return;
+    const { x, frac, w } = dragStart.current;
+    const dx = clientX - x;
+    const dFrac = dx / w;
+    const next = Math.min(1, Math.max(0, frac - dFrac));
+    setGanttFrac(next);
+  };
 
   useEffect(() => {
     if (!dragging) return;
@@ -115,7 +128,6 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   }, [dragging]);
 
   const onSplitterDoubleClick = () => {
-    // reset til 40/60 (Gantt 60%)
     setGanttFrac(0.6);
   };
   /* ==== [BLOCK: splitter handlers] END ==== */
@@ -144,8 +156,25 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
           </label>
         </div>
 
-        <div style={{ marginLeft: "auto", fontSize: 12, color: "#6b7280" }}>
-          Rader: {rows.length} • Rad: {ROW_H}px • Header: {HEADER_H}px • Gantt px/{zoom}: {GANTT_ZOOM_PX[zoom]}
+        {/* Prosjekt – åpne modal */}
+        <button className="btn" onClick={() => setShowProsjektModal(true)} title="Prosjektinfo (i)">ℹ️ Prosjekt</button>
+        {/* Hjelp – toggle sidepanel */}
+        <button className="btn" onClick={() => setShowHjelp(v => !v)} title="Åpne/Lukk hjelpepanelet">❔ Hjelp</button>
+
+        <div style={{ marginLeft: "auto", fontSize: 12, color: "#6b7280", display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Prosjektmetadata i toolbar */}
+          {prosjekt.navn ? (
+            <span style={{ color: "#111" }}>
+              <strong>{prosjekt.navn}</strong>
+              {prosjekt.start || prosjekt.slutt ? (
+                <span style={{ color: "#6b7280" }}> • {prosjekt.start || "?"} – {prosjekt.slutt || "?"}</span>
+              ) : null}
+            </span>
+          ) : <span style={{ color: "#9ca3af" }}>Prosjekt ikke satt</span>}
+
+          <span>
+            Rader: {rows.length} • Rad: {ROW_H}px • Header: {HEADER_H}px • Gantt px/{zoom}: {GANTT_ZOOM_PX[zoom]}
+          </span>
         </div>
       </div>
 
@@ -240,6 +269,15 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
         </div>
         <div className="footer-credit">Brewed by Morning Coffee Labs 2025</div>
       </div>
+
+      {/* Modaler / paneler */}
+      <ProsjektInfoModal
+        open={showProsjektModal}
+        initial={prosjekt}
+        onSave={setProsjekt}
+        onClose={() => setShowProsjektModal(false)}
+      />
+      <HjelpFaqPanel open={showHjelp} onClose={() => setShowHjelp(false)} />
     </>
   );
   /* ==== [BLOCK: render] END ==== */
