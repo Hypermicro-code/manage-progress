@@ -1,4 +1,4 @@
-/* ==== [BLOCK: GanttDiagram – v1 zoom + overlays, no V-scroll] BEGIN ==== */
+/* ==== [BLOCK: GanttDiagram – v1 zoom + overlays, header sync, no V-scroll] BEGIN ==== */
 import React, { useEffect, useMemo, useRef } from "react";
 import type { Rad } from "../core/types";
 import {
@@ -77,15 +77,20 @@ export default function GanttDiagram({
   );
   /* ==== [BLOCK: dims] END ==== */
 
-  /* ==== [BLOCK: render helpers] BEGIN ==== */
+  /* ==== [BLOCK: header render] BEGIN ==== */
   const renderHeader = () => {
     const marks: React.ReactNode[] = [];
+    // Midtstill etiketter i HEADER_H (antatt ~16px teksthøyde)
+    const labelTop = Math.max(0, Math.floor(HEADER_H / 2 - 8));
+
     if (zoom === "day") {
       for (let i = 0; i <= units; i++) {
         const d = new Date(startDate);
         d.setDate(d.getDate() + i);
         const x = i * pxPerUnit;
         const isMonthStart = d.getDate() === 1;
+
+        // Vertikale grid-linjer
         marks.push(
           <div
             key={`d${i}`}
@@ -99,6 +104,8 @@ export default function GanttDiagram({
             }}
           />
         );
+
+        // Månedsetikett
         if (isMonthStart) {
           marks.push(
             <div
@@ -106,15 +113,12 @@ export default function GanttDiagram({
               style={{
                 position: "absolute",
                 left: x + 6,
-                top: 8,
+                top: labelTop,
                 fontSize: 12,
                 color: "#6b7280",
               }}
             >
-              {d.toLocaleDateString(undefined, {
-                month: "short",
-                year: "numeric",
-              })}
+              {d.toLocaleDateString(undefined, { month: "short", year: "numeric" })}
             </div>
           );
         }
@@ -135,6 +139,7 @@ export default function GanttDiagram({
             }}
           />
         );
+        // månedsetikett ca. hver fjerde uke
         if (i % 4 === 0) {
           const d = new Date(startDate);
           d.setDate(d.getDate() + i * 7);
@@ -144,20 +149,18 @@ export default function GanttDiagram({
               style={{
                 position: "absolute",
                 left: x + 6,
-                top: 8,
+                top: labelTop,
                 fontSize: 12,
                 color: "#6b7280",
               }}
             >
-              {d.toLocaleDateString(undefined, {
-                month: "short",
-                year: "numeric",
-              })}
+              {d.toLocaleDateString(undefined, { month: "short", year: "numeric" })}
             </div>
           );
         }
       }
     } else {
+      // month
       for (let i = 0; i <= units; i++) {
         const x = i * pxPerUnit;
         marks.push(
@@ -181,22 +184,21 @@ export default function GanttDiagram({
             style={{
               position: "absolute",
               left: x + 6,
-              top: 8,
+              top: labelTop,
               fontSize: 12,
               color: "#6b7280",
             }}
           >
-            {d.toLocaleDateString(undefined, {
-              month: "short",
-              year: "numeric",
-            })}
+            {d.toLocaleDateString(undefined, { month: "short", year: "numeric" })}
           </div>
         );
       }
     }
     return marks;
   };
+  /* ==== [BLOCK: header render] END ==== */
 
+  /* ==== [BLOCK: weekend + today overlays] BEGIN ==== */
   const renderWeekendShading = () => {
     if (!showWeekends || zoom !== "day") return null;
     const bands: React.ReactNode[] = [];
@@ -229,14 +231,12 @@ export default function GanttDiagram({
     let x = 0;
     if (zoom === "day") {
       const diffDays = Math.floor(
-        (startOfDay(new Date()).getTime() - startDate.getTime()) /
-          (1000 * 60 * 60 * 24)
+        (startOfDay(new Date()).getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
       );
       x = diffDays * pxPerUnit + Math.floor(pxPerUnit / 2);
     } else if (zoom === "week") {
       const diffDays = Math.floor(
-        (startOfDay(new Date()).getTime() - startDate.getTime()) /
-          (1000 * 60 * 60 * 24)
+        (startOfDay(new Date()).getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
       );
       const diffWeeks = Math.floor(diffDays / 7);
       x = diffWeeks * pxPerUnit + Math.floor(pxPerUnit / 2);
@@ -259,7 +259,7 @@ export default function GanttDiagram({
       />
     );
   };
-  /* ==== [BLOCK: render helpers] END ==== */
+  /* ==== [BLOCK: weekend + today overlays] END ==== */
 
   return (
     <div style={{ overflow: "hidden" }}>
@@ -269,7 +269,7 @@ export default function GanttDiagram({
         ref={scrollerRef}
         style={{ overflowX: "auto", overflowY: "hidden" }}
       >
-        {/* Header */}
+        {/* Header – nøyaktig HEADER_H, ingen ekstra padding */}
         <div
           style={{
             position: "relative",
@@ -282,7 +282,7 @@ export default function GanttDiagram({
           {renderHeader()}
         </div>
 
-        {/* Kropp – bakgrunnsrutenett + overlays */}
+        {/* Kropp – bakgrunn + overlays, ingen intern V-scroll */}
         <div
           style={{
             position: "relative",
@@ -290,13 +290,10 @@ export default function GanttDiagram({
             height: contentHeight - HEADER_H,
           }}
         >
-          {/* Helgeskygge */}
           {renderWeekendShading()}
-
-          {/* I-dag-linje */}
           {renderTodayLine()}
 
-          {/* Radlinjer */}
+          {/* Radlinjer – matcher ROW_H */}
           <div>
             {rows.map((_, i) => (
               <div
@@ -313,4 +310,4 @@ export default function GanttDiagram({
     </div>
   );
 }
-/* ==== [BLOCK: GanttDiagram – v1 zoom + overlays, no V-scroll] END ==== */
+/* ==== [BLOCK: GanttDiagram – v1 zoom + overlays, header sync, no V-scroll] END ==== */
