@@ -195,7 +195,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
   return (
     <div className="hide-native-scrollbars" style={{ overflow: "hidden" }}>
-      /* ==== [BLOCK: DataEditor props – editing + single-click] BEGIN ==== */
+      /* ==== [BLOCK: DataEditor props – editing] BEGIN ==== */
 <DataEditor
   ref={editorRef}
   width="100%"
@@ -212,14 +212,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   smoothScrollY
   theme={theme as any}
   onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
-
-  /* Åpne editor på klikk for “skriv direkte”-følelse */
-  onCellClicked={(cell) => {
-    const [c, r] = cell;
-    editorRef.current?.openCell(c, r);
-  }}
-/>
-/* ==== [BLOCK: DataEditor props – editing + single-click] END ==== */
+/* ==== [BLOCK: DataEditor props – editing] END ==== */
     </div>
   );
 });
