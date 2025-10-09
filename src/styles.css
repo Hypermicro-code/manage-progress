@@ -2,141 +2,108 @@
   --grid:#e5e7eb; --line:#d1d5db; --line-strong:#9ca3af;
   --bg:#fafafa; --txt:#111827; --accent:#2563eb;
   --row-h:34; --header-h:56;
+  --frame-pad:20px;          /* luft mot sidekanter */
 }
 
 *{box-sizing:border-box}
 html,body,#root{height:100%}
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;background:var(--bg);color:var(--txt)}
-
-/* ==== [BLOCK: responsive frame padding] BEGIN ==== */
-:root{
-  --frame-pad: 20px; /* ca. 20px “luft” på hver side */
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;
+  background:var(--bg);
+  color:var(--txt);
 }
+
+/* ==== [BLOCK: layout wrapper] BEGIN ==== */
 .wrapper{
-  width: 100%;
-  max-width: none;           /* ingen kunstig maks */
-  margin: 16px auto;
-  padding-left: var(--frame-pad);
-  padding-right: var(--frame-pad);
+  width:100%;
+  max-width:none;
+  margin:16px auto;
+  padding:0 var(--frame-pad);
 }
-/* ==== [BLOCK: responsive frame padding] END ==== */
+/* ==== [BLOCK: layout wrapper] END ==== */
 
-/* Verktøylinje */
-.toolbar{display:flex;gap:8px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 10px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+/* ==== [BLOCK: toolbar] BEGIN ==== */
+.toolbar{
+  display:flex;gap:8px;align-items:center;
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  padding:8px 10px;box-shadow:0 6px 18px rgba(0,0,0,.06)
+}
 .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+/* ==== [BLOCK: toolbar] END ==== */
 
-/* ==== [BLOCK: panels grid – tighter gap] BEGIN ==== */
+/* ==== [BLOCK: panels grid] BEGIN ==== */
 .panels{
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:10px;                 /* litt, men ikke for mye luft mellom panelene */
+  gap:10px;
   align-items:start;
   min-height:520px;
 }
-/* ==== [BLOCK: panels grid – tighter gap] END ==== */
+/* ==== [BLOCK: panels grid] END ==== */
 
-/* ==== [BLOCK: scroll-host height for sticky footer] BEGIN ==== */
+/* ==== [BLOCK: scroll-host] BEGIN ==== */
 .scroll-host{
-  height: calc(100vh - 160px); /* toolbar + footer */
-  overflow: auto;
-  border-radius: 12px;
+  height:calc(100vh - 160px);   /* plass til toolbar + footer */
+  overflow:auto;
+  border-radius:12px;
 }
-/* ==== [BLOCK: scroll-host height for sticky footer] END ==== */
+/* Skjul native scrollbars uten å deaktivere programmatisk scrolling */
+.hide-native-scrollbars::-webkit-scrollbar{display:none}
+.hide-native-scrollbars{-ms-overflow-style:none;scrollbar-width:none}
+/* ==== [BLOCK: scroll-host] END ==== */
 
-/* Panelkort */
+/* ==== [BLOCK: panel card] BEGIN ==== */
 .panel{
   background:#fff;
   border:1px solid var(--line);
-  border-radius:0;              /* <- fjern avrunding på panelene */
+  border-radius:0;              /* panelene uten avrunding */
   box-shadow:0 6px 18px rgba(0,0,0,.04);
   overflow:hidden;
 }
+/* ==== [BLOCK: panel card] END ==== */
 
-/* Header-høyde må matche Tabell og Gantt */
-.panel-header{height:var(--header-h);border-bottom:2px solid var(--line-strong);display:flex;align-items:center;padding:0 10px;font-weight:600}
-
-/* Sliderne er alltid synlige */
-.hslider-wrap{padding:8px 10px;border-top:1px solid var(--line);background:#fff}
+/* ==== [BLOCK: sliders] BEGIN ==== */
 .hslider{width:100%}
+.hslider-wrap{padding:8px 10px;border-top:1px solid var(--line);background:#fff}
+/* ==== [BLOCK: sliders] END ==== */
 
-/* Skjul native scrollbars i DataEditor, men behold programmatisk scrolling */
-.hide-native-scrollbars::-webkit-scrollbar{display:none}
-.hide-native-scrollbars{-ms-overflow-style:none;scrollbar-width:none}
-
-/* Footer */
-.footer{margin-top:12px;color:#6b7280;font-size:12px}
-
-/* ==== [BLOCK: footer bar] BEGIN ==== */
+/* ==== [BLOCK: sticky footer bar] BEGIN ==== */
 .footer-bar{
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 12px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 8px 10px;
-  margin-top: 12px;
-  box-shadow: 0 6px 18px rgba(0,0,0,.06);
+  position:sticky;bottom:0;z-index:10;
+  display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  padding:8px 10px;margin-top:12px;box-shadow:0 6px 18px rgba(0,0,0,.06);
 }
-.footer-scrollers{display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: center}
+.footer-scrollers{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center}
 .footer-slider{display:flex;align-items:center;gap:8px}
 .footer-slider label{font-size:12px;color:#6b7280;min-width:48px;text-align:right}
 .footer-credit{font-size:12px;color:#6b7280;white-space:nowrap}
-.hslider{width:100%}
-/* ==== [BLOCK: footer bar] END ==== */
+/* ==== [BLOCK: sticky footer bar] END ==== */
 
-/* ==== [BLOCK: scroll-host height tune for sticky footer] BEGIN ==== */
-/* Gi plass til toolbar + footer i viewporten */
-.scroll-host{
-  height: calc(100vh - 160px);
-  overflow: auto;
-  border-radius: 12px;
-}
-/* ==== [BLOCK: scroll-host height tune for sticky footer] END ==== */
+/* ==== [BLOCK: misc footer text] BEGIN ==== */
+.footer{margin-top:12px;color:#6b7280;font-size:12px}
+/* ==== [BLOCK: misc footer text] END ==== */
 
-/* ==== [BLOCK: panel radius OFF (behold toolbar rund) ] BEGIN ==== */
-.panel{
-  background:#fff;border:1px solid var(--line);border-radius:0;box-shadow:0 6px 18px rgba(0,0,0,.04);overflow:hidden;
-}
-/* ==== [BLOCK: panel radius OFF (behold toolbar rund) ] END ==== */
-/* ==== [BLOCK: Tabell – hide internal vertical scrollbar] BEGIN ==== */
-.tabell-grid .gdg-scrollbar-vertical {
-  display: none !important;
-}
-.tabell-grid .gdg-scroll-region {
-  overflow-y: hidden !important; /* belt & suspenders */
-}
-/* ==== [BLOCK: Tabell – hide internal vertical scrollbar] END ==== */
-/* ==== [BLOCK: Tabell – nuke internal vertical scrollbar] BEGIN ==== */
+/* ==== [BLOCK: Tabell – remove/hide internal vertical scrollbar] BEGIN ==== */
+/* 1) Forsøk å skjule Glide sin vertikale scrollbar (klassenavn kan variere litt) */
+.tabell-grid .gdg-scrollbar-vertical,
 .tabell-grid [class*="scrollbar-vertical"],
-.tabell-grid div[role="scrollbar"][aria-orientation="vertical"] {
-  display: none !important;
+.tabell-grid div[role="scrollbar"][aria-orientation="vertical"]{
+  display:none !important;
 }
+/* 2) Sørg for at regionen ikke viser Y-scroll uansett */
+.tabell-grid .gdg-scroll-region,
 .tabell-grid [class*="scroll-region"],
 .tabell-grid [class*="ScrollRegion"],
-.tabell-grid .gdg-scroll-region,
-.tabell-grid .gdg-main {
-  overflow-y: hidden !important;
+.tabell-grid .gdg-main{
+  overflow-y:hidden !important;
 }
-/* ==== [BLOCK: Tabell – nuke internal vertical scrollbar] END ==== */
-/* ==== [BLOCK: Tabell – mask vertical scrollbar] BEGIN ==== */
-.tabell-grid {
-  position: relative;
+/* 3) Siste forsvarslinje: mask en smal stripe til høyre */
+.tabell-grid{position:relative}
+.tabell-vmask{
+  position:absolute;top:0;right:0;bottom:0;
+  width:12px;background:#fff;pointer-events:none;
 }
-.tabell-vmask {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 12px;              /* bredde > Glide sin scrollbar (~8–10px) */
-  background: #fff;         /* samme som panelbakgrunn */
-  pointer-events: none;     /* ikke blokker klikk/drag i griden */
-}
-/* ==== [BLOCK: Tabell – mask vertical scrollbar] END ==== */
-
-/* (behold gjerne tidligere “nuke”-regler også; denne masken er siste forsvarslinje) */
+/* ==== [BLOCK: Tabell – remove/hide internal vertical scrollbar] END ==== */
