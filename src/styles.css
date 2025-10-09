@@ -107,3 +107,15 @@ body{
   width:12px;background:#fff;pointer-events:none;
 }
 /* ==== [BLOCK: Tabell – remove/hide internal vertical scrollbar] END ==== */
+/* ==== [BLOCK: Tabell – hide internal horizontal scrollbar] BEGIN ==== */
+.tabell-grid .gdg-scrollbar-horizontal,
+.tabell-grid [class*="scrollbar-horizontal"],
+.tabell-grid div[role="scrollbar"][aria-orientation="horizontal"] {
+  display: none !important;
+}
+.tabell-grid .gdg-scroll-region,
+.tabell-grid [class*="scroll-region"],
+.tabell-grid .gdg-main {
+  overflow-x: hidden !important;
+}
+/* ==== [BLOCK: Tabell – hide internal horizontal scrollbar] END ==== */
