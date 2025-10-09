@@ -271,45 +271,49 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
   /* ==== [BLOCK: theme + sizing] BEGIN ==== */
   const theme = useMemo(
-    () => ({
-      headerHeight: HEADER_H,
-      rowHeight: ROW_H,
-      // match Gantt
-      headerFontColor: "#6b7280",
-      headerBackgroundColor: "#ffffff",
-      headerBottomBorder: "2px solid var(--line-strong)",
-    }),
-    []
-  );
+    const theme = useMemo(
+  () => ({
+    headerHeight: HEADER_H,
+    rowHeight: ROW_H,
+    headerFontColor: "#6b7280",
+    headerBackgroundColor: "#ffffff",
+    headerBottomBorder: "2px solid var(--line-strong)", // samme som Gantt
+  }),
+  []
+);
 
   // Hindre intern vertikal scroll ved å gi editoren “full” høyde
   const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
   /* ==== [BLOCK: theme + sizing] END ==== */
 
   /* ==== [BLOCK: render] BEGIN ==== */
-  return (
-    <div
-      ref={containerRef}
-      className="hide-native-scrollbars"
-      style={{ overflow: "hidden", position: "relative" }}
-    >
-      <DataEditor
-        ref={editorRef}
-        width="100%"
-        height={editorHeight}
-        rows={rows.length}
-        columns={columns}
-        getCellContent={getCellContent}
-        onCellEdited={onCellEdited}
-        onPaste={onPaste}
-        gridSelection={selection}
-        onGridSelectionChange={setSelection}
-        rowMarkers="number"
-        smoothScrollX
-        smoothScrollY
-        theme={theme as any}
-        onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
-      />
+  /* ==== [BLOCK: Tabell render] BEGIN ==== */
+return (
+  <div
+    ref={containerRef}
+    className="hide-native-scrollbars"
+    style={{ overflow: "hidden" }}
+  >
+    <DataEditor
+      ref={editorRef}
+      width="100%"
+      height={editorHeight}
+      rows={rows.length}
+      columns={columns}
+      getCellContent={getCellContent}
+      onCellEdited={onCellEdited}
+      onPaste={onPaste}
+      gridSelection={selection}
+      onGridSelectionChange={setSelection}
+      rowMarkers="number"
+      smoothScrollX
+      smoothScrollY
+      theme={theme as any}
+      onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
+    />
+  </div>
+);
+/* ==== [BLOCK: Tabell render] END ==== */
       {/* Tegn samme bunnlinje som i Gantt-headeren (2px var(--line-strong)) */}
       <div
         aria-hidden
