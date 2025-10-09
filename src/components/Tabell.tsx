@@ -1,4 +1,5 @@
-// Tabell.tsx – v0.2.1 core-refactor: flytter beregningslogikk til /src/core
+// Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
+// v0.2.2: Beregningsregler via core + rekalkuleringsprompt + tapsfri skriving (buffer)
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -21,13 +22,11 @@ import DataEditor, {
 import "@glideapps/glide-data-grid/dist/index.css";
 import type { Rad } from "../core/types";
 import { HEADER_H, ROW_H, TABLE_COLS } from "../core/layout";
-
 import { toDate, toNum } from "../core/date";
 import {
   planAfterEdit,
   resolvePrompt,
   type RecalcPromptMeta,
-  type PromptKind,
 } from "../core/recalc";
 /* ==== [BLOCK: imports] END ==== */
 
@@ -43,13 +42,20 @@ type Props = {
   rows: Rad[];
   setCell: (rowIndex: number, key: keyof Rad, value: Rad[keyof Rad]) => void;
 
+  /** total content height (for å unngå intern V-scroll) */
   height: number;
+  /** horisontal scrollposisjon styres utenfra */
   scrollX: number;
   onScrollXChange: (x: number) => void;
   onTotalWidthChange?: (w: number) => void;
 
+  /** Løft opp valgt område (for “Tøm markerte”) */
   onSelectionChange?: (cells: { r: number; c: KolonneKey }[]) => void;
+
+  /** rapportér viewport-bredde (for korrekt slider-max) */
   onViewportWidthChange?: (w: number) => void;
+
+  /** rapportér topRow basert på faktisk synlig region i grid */
   onTopRowChange?: (top: number) => void;
 };
 /* ==== [BLOCK: types & handles] END ==== */
@@ -69,11 +75,42 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   },
   ref
 ) {
+  /* ==== [BLOCK: refs] BEGIN ==== */
   const editorRef = useRef<DataEditorRef | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  /* ==== [BLOCK: refs] END ==== */
 
-  /* Prompt state (tvetydige endringer) */
+  /* ==== [BLOCK: speedy typing buffer – refs & helpers] BEGIN ==== */
+  const typeBufRef = useRef<{ row: number; col: number; value: string } | null>(null);
+  const typeBufTimerRef = useRef<number | null>(null);
+
+  function clearTypeBufSoon(ms = 500) {
+    if (typeBufTimerRef.current) window.clearTimeout(typeBufTimerRef.current);
+    typeBufTimerRef.current = window.setTimeout(() => {
+      typeBufRef.current = null;
+      typeBufTimerRef.current = null;
+    }, ms);
+  }
+
+  function isPrintableKey(e: KeyboardEvent): boolean {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.key.length === 1) return true; // bokstav, tall, symbol, space
+    return false;
+  }
+
+  function sanitizeForColumn(colKey: string, raw: string): string {
+    if (colKey === "varighet" || colKey === "ap" || colKey === "pp") {
+      // Kun tall + . , (normaliser til .)
+      const s = raw.replace(/,/g, ".").replace(/[^0-9.]+/g, "");
+      return s;
+    }
+    return raw;
+  }
+  /* ==== [BLOCK: speedy typing buffer – refs & helpers] END ==== */
+
+  /* ==== [BLOCK: prompt state] BEGIN ==== */
   const [prompt, setPrompt] = useState<(RecalcPromptMeta & { row: number }) | null>(null);
+  /* ==== [BLOCK: prompt state] END ==== */
 
   /* ==== [BLOCK: columns] BEGIN ==== */
   const columns = useMemo<GridColumn[]>(
@@ -88,16 +125,22 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
   useEffect(() => {
     const total = columns.reduce(
-      (acc, c) => acc + (("width" in c && typeof (c as any).width === "number" ? (c as any).width : 120)),
+      (acc, c) =>
+        acc +
+        (("width" in c && typeof (c as any).width === "number"
+          ? (c as any).width
+          : 120) as number),
       0
     );
     onTotalWidthChange?.(total);
   }, [columns, onTotalWidthChange]);
   /* ==== [BLOCK: columns] END ==== */
 
+  /* ==== [BLOCK: external H-scroll sync] BEGIN ==== */
   useEffect(() => {
     editorRef.current?.scrollTo(scrollX, 0);
   }, [scrollX]);
+  /* ==== [BLOCK: external H-scroll sync] END ==== */
 
   /* ==== [BLOCK: getCellContent] BEGIN ==== */
   const getCellContent = React.useCallback(
@@ -141,10 +184,14 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           typeof newValue.data === "number" && !Number.isNaN(newValue.data)
             ? newValue.data
             : "";
-      } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
+      } else if (
+        newValue.kind === GridCellKind.Text ||
+        newValue.kind === GridCellKind.Markdown
+      ) {
         editedVal = (newValue.data ?? "") as any;
       } else {
-        editedVal = (newValue as any).data ?? (newValue as any).displayData ?? "";
+        editedVal =
+          (newValue as any).data ?? (newValue as any).displayData ?? "";
       }
 
       // Snapshot “etter” primær-commit
@@ -177,7 +224,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   );
   /* ==== [BLOCK: onCellEdited – bruker core/recalc] END ==== */
 
-  /* ==== [BLOCK: selection lift] BEGIN ==== */
+  /* ==== [BLOCK: selection state + lift] BEGIN ==== */
   const [selection, setSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
@@ -199,7 +246,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     }
     onSelectionChange?.(out);
   }, [selection, onSelectionChange]);
-  /* ==== [BLOCK: selection lift] END ==== */
+  /* ==== [BLOCK: selection state + lift] END ==== */
 
   /* ==== [BLOCK: paste handler] BEGIN ==== */
   const onPaste = React.useCallback(
@@ -249,7 +296,9 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     for (let rr = y; rr < y + height; rr++) {
       const cols: string[] = [];
       for (let cc = x; cc < x + width; cc++) {
-        const raw = getCellString(rr, cc).replace(/\t/g, " ").replace(/\r?\n/g, " ");
+        const raw = getCellString(rr, cc)
+          .replace(/\t/g, " ")
+          .replace(/\r?\n/g, " ");
         cols.push(raw);
       }
       lines.push(cols.join("\t"));
@@ -268,9 +317,13 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         ta.value = tsv;
         ta.style.position = "fixed";
         ta.style.left = "-9999px";
+        ta.style.top = "0";
+        ta.style.opacity = "0";
         document.body.appendChild(ta);
         ta.select();
-        try { document.execCommand("copy"); } catch {}
+        try {
+          document.execCommand("copy");
+        } catch {}
         document.body.removeChild(ta);
       }
     };
@@ -278,6 +331,130 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     return true;
   }, [selection, getCellString]);
   /* ==== [BLOCK: copy helpers] END ==== */
+
+  /* ==== [BLOCK: global key handler – copy + lossless first-keys] BEGIN ==== */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Sjekk om fokus er i / rundt tabellen
+      const within =
+        containerRef.current &&
+        (containerRef.current === document.activeElement ||
+          containerRef.current.contains(document.activeElement));
+      if (!within) return;
+
+      // Ingen current → håndter kun kopiering
+      if (!selection.current) {
+        const isMac = navigator.platform.toLowerCase().includes("mac");
+        const mod = isMac ? e.metaKey : e.ctrlKey;
+        if (mod && e.key.toLowerCase() === "c") {
+          const handled = copySelectionToClipboard();
+          if (handled) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }
+        return;
+      }
+
+      const { x, y, width, height } = selection.current.range;
+
+      // Multi-utvalg → bare kopiering
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (width !== 1 || height !== 1) {
+        if (mod && e.key.toLowerCase() === "c") {
+          const handled = copySelectionToClipboard();
+          if (handled) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }
+        return;
+      }
+
+      const colIndex = x;
+      const rowIndex = y;
+      const colKey = TABLE_COLS[colIndex].key as keyof Rad;
+      const row = rows[rowIndex];
+
+      // 1) Kopiering (Cmd/Ctrl+C)
+      if (mod && e.key.toLowerCase() === "c") {
+        const handled = copySelectionToClipboard();
+        if (handled) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+
+      // 2) Navigasjon/commit/esc – tøm buffer
+      const navKeys = [
+        "Enter",
+        "Escape",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Tab",
+      ];
+      if (navKeys.includes(e.key)) {
+        typeBufRef.current = null;
+        if (typeBufTimerRef.current) {
+          window.clearTimeout(typeBufTimerRef.current);
+          typeBufTimerRef.current = null;
+        }
+        return;
+      }
+
+      // 3) Backspace/Delete – rediger via buffer (tapsfri)
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        e.stopPropagation();
+        const base =
+          typeBufRef.current &&
+          typeBufRef.current.row === rowIndex &&
+          typeBufRef.current.col === colIndex
+            ? typeBufRef.current.value
+            : String(row?.[colKey] ?? "");
+        const next = e.key === "Backspace" ? base.slice(0, -1) : "";
+        const cleaned = sanitizeForColumn(String(colKey), next);
+        setCell(rowIndex, colKey, cleaned as any);
+        typeBufRef.current = { row: rowIndex, col: colIndex, value: cleaned };
+        clearTypeBufSoon();
+        return;
+      }
+
+      // 4) Første tast(e) mens overlay-editor ennå ikke er klar → prebuffer
+      if (isPrintableKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const baseActive =
+          typeBufRef.current &&
+          typeBufRef.current.row === rowIndex &&
+          typeBufRef.current.col === colIndex;
+
+        // Excel-lik oppførsel: første tast erstatter innhold hvis vi ikke er i "typing session"
+        const seed = baseActive ? typeBufRef.current!.value : "";
+        const nextRaw = seed + e.key;
+        const next = sanitizeForColumn(String(colKey), nextRaw);
+
+        setCell(rowIndex, colKey, next as any);
+        typeBufRef.current = { row: rowIndex, col: colIndex, value: next };
+        clearTypeBufSoon();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        onKeyDown as any,
+        { capture: true } as any
+      );
+  }, [rows, selection, setCell, copySelectionToClipboard]);
+  /* ==== [BLOCK: global key handler – copy + lossless first-keys] END ==== */
 
   /* ==== [BLOCK: imperative handle] BEGIN ==== */
   useImperativeHandle(ref, () => ({
@@ -289,20 +466,25 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: Tabell theme + sizing] BEGIN ==== */
   const theme = useMemo(
     () => ({
+      // Farger og linjer – tydelig kontrast
       headerFontColor: "#111",
       headerBackgroundColor: "#ffffff",
       headerBottomBorder: "2px solid #000",
+
       accentColor: "#000",
       borderColor: "#000",
       horizontalBorderColor: "#000",
       verticalBorderColor: "#000",
       gridLineColor: "#000",
+
       textDark: "#111",
       textMedium: "#111",
       textLight: "#111",
     }),
     []
   );
+
+  // Editorhøyde > innhold for å unngå intern V-scroll (liten buffer)
   const editorHeight = HEADER_H + rows.length * ROW_H + 20;
   /* ==== [BLOCK: Tabell theme + sizing] END ==== */
 
@@ -340,10 +522,11 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         }}
       />
 
+      {/* Masker ev. interne scrollbars */}
       <div className="tabell-vmask" aria-hidden />
       <div className="tabell-hmask" aria-hidden />
 
-      {/* Prompt */}
+      {/* Recalc prompt */}
       {prompt && (
         <RecalcDialog
           prompt={prompt}
@@ -378,25 +561,53 @@ function RecalcDialog({
   const { kind } = prompt;
 
   let title = "";
-  let options: { key: "keep-duration" | "keep-end" | "keep-start"; label: string; desc?: string }[] = [];
+  let options: {
+    key: "keep-duration" | "keep-end" | "keep-start";
+    label: string;
+    desc?: string;
+  }[] = [];
 
   if (kind === "start-changed") {
     title = "Start endret – hva vil du bevare?";
     options = [
-      { key: "keep-duration", label: "Bevar varighet", desc: "Flytt Slutt slik at varigheten beholdes." },
-      { key: "keep-end", label: "Bevar slutt", desc: "Reberegn varighet ut fra ny Start → Slutt." },
+      {
+        key: "keep-duration",
+        label: "Bevar varighet",
+        desc: "Flytt Slutt slik at varigheten beholdes.",
+      },
+      {
+        key: "keep-end",
+        label: "Bevar slutt",
+        desc: "Reberegn varighet ut fra ny Start → Slutt.",
+      },
     ];
   } else if (kind === "slutt-changed") {
     title = "Slutt endret – hva vil du bevare?";
     options = [
-      { key: "keep-duration", label: "Bevar varighet", desc: "Flytt Start slik at varigheten beholdes." },
-      { key: "keep-start", label: "Bevar start", desc: "Reberegn varighet ut fra Start → ny Slutt." },
+      {
+        key: "keep-duration",
+        label: "Bevar varighet",
+        desc: "Flytt Start slik at varigheten beholdes.",
+      },
+      {
+        key: "keep-start",
+        label: "Bevar start",
+        desc: "Reberegn varighet ut fra Start → ny Slutt.",
+      },
     ];
   } else {
     title = "Varighet endret – hvilken dato vil du justere?";
     options = [
-      { key: "keep-start", label: "Bevar start", desc: "Flytt Slutt basert på ny varighet." },
-      { key: "keep-end", label: "Bevar slutt", desc: "Flytt Start basert på ny varighet." },
+      {
+        key: "keep-start",
+        label: "Bevar start",
+        desc: "Flytt Slutt basert på ny varighet.",
+      },
+      {
+        key: "keep-end",
+        label: "Bevar slutt",
+        desc: "Flytt Start basert på ny varighet.",
+      },
     ];
   }
 
@@ -429,7 +640,12 @@ function RecalcDialog({
           marginBottom: 8,
         }}
       >
-        <div style={{ padding: "12px 12px 8px 12px", borderBottom: "1px solid var(--line)" }}>
+        <div
+          style={{
+            padding: "12px 12px 8px 12px",
+            borderBottom: "1px solid var(--line)",
+          }}
+        >
           <strong>{title}</strong>
         </div>
         <div style={{ padding: 12, display: "grid", gap: 8 }}>
@@ -437,16 +653,33 @@ function RecalcDialog({
             <button
               key={opt.key}
               className="btn"
-              style={{ textAlign: "left", display: "grid", gap: 4, padding: "10px 12px" }}
+              style={{
+                textAlign: "left",
+                display: "grid",
+                gap: 4,
+                padding: "10px 12px",
+              }}
               onClick={() => onApply(opt.key)}
             >
               <span style={{ fontWeight: 600 }}>{opt.label}</span>
-              {opt.desc ? <span style={{ fontSize: 12, color: "#6b7280" }}>{opt.desc}</span> : null}
+              {opt.desc ? (
+                <span style={{ fontSize: 12, color: "#6b7280" }}>{opt.desc}</span>
+              ) : null}
             </button>
           ))}
         </div>
-        <div style={{ padding: 12, borderTop: "1px solid var(--line)", display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button className="btn" onClick={onCancel}>Avbryt</button>
+        <div
+          style={{
+            padding: 12,
+            borderTop: "1px solid var(--line)",
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+          }}
+        >
+          <button className="btn" onClick={onCancel}>
+            Avbryt
+          </button>
         </div>
       </div>
     </div>
