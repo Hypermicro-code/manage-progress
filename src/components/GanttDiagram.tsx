@@ -1,4 +1,4 @@
-/* ==== [BLOCK: GanttDiagram – zoom, overlays, width-report] BEGIN ==== */
+/* ==== [BLOCK: GanttDiagram – zoom, overlays, width-report + task blocks v0.2] BEGIN ==== */
 import React, { useEffect, useMemo, useRef } from "react";
 import type { Rad } from "../core/types";
 import {
@@ -18,7 +18,7 @@ type Props = {
   showWeekends: boolean;
   showToday: boolean;
 
-  /** NY: rapportér totalWidth og viewportWidth */
+  /** rapportér totalWidth og viewportWidth */
   onTotalWidthChange?: (w: number) => void;
   onViewportWidthChange?: (w: number) => void;
 };
@@ -32,6 +32,22 @@ function startOfMonth(d: Date) {
   const x = startOfDay(d);
   x.setDate(1);
   return x;
+}
+function parseDate(s: any): Date | null {
+  const str = String(s ?? "").trim();
+  if (!str) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if (m) {
+    const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
+    const dt = new Date(y, mo, d);
+    dt.setHours(0, 0, 0, 0);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  const dt = new Date(str);
+  return isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+function monthsBetween(a: Date, b: Date): number {
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 }
 
 export default function GanttDiagram({
@@ -187,6 +203,75 @@ export default function GanttDiagram({
   };
   /* ==== [BLOCK: weekend + today overlays] END ==== */
 
+  /* ==== [BLOCK: task blocks v0.2] BEGIN ==== */
+  const renderTasks = () => {
+    const nodes: React.ReactNode[] = [];
+    const rowTopBase = 0; // vi er i content-området (under HEADER_H allerede)
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i] as any;
+      const s = parseDate(r?.start);
+      const durN = Number(String(r?.varighet ?? "").replace(",", "."));
+      if (!s || !Number.isFinite(durN) || durN <= 0) continue;
+
+      let x = 0;
+      let w = pxPerUnit; // minste bredde enheten
+      if (zoom === "day") {
+        const daysFromStart = Math.floor((s.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        x = daysFromStart * pxPerUnit;
+        w = Math.max(pxPerUnit * durN, pxPerUnit * 0.6);
+      } else if (zoom === "week") {
+        const daysFromStart = Math.floor((s.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        const weeksFromStart = Math.floor(daysFromStart / 7);
+        x = weeksFromStart * pxPerUnit;
+        const weeks = Math.max(1, Math.ceil(durN / 7));
+        w = weeks * pxPerUnit;
+      } else {
+        const m = monthsBetween(startDate, s);
+        x = m * pxPerUnit;
+        const months = Math.max(1, Math.ceil(durN / 30));
+        w = months * pxPerUnit;
+      }
+
+      const y = rowTopBase + i * ROW_H + 6; // litt padding i raden
+      const h = ROW_H - 12;
+
+      nodes.push(
+        <div
+          key={`t${i}`}
+          title={`${r?.navn || "Oppgave"} • ${r?.start || ""} → ${r?.slutt || ""} (${r?.varighet || ""}d)`}
+          style={{
+            position: "absolute",
+            left: x,
+            top: y,
+            width: Math.max(6, w),
+            height: Math.max(8, h),
+            background: "#60a5fa",
+            border: "1px solid #1d4ed8",
+            borderRadius: 4,
+            boxShadow: "0 2px 6px rgba(0,0,0,.08)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "0 6px",
+              fontSize: 12,
+              lineHeight: `${Math.max(8, h)}px`,
+              color: "#0b1b3a",
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+              overflow: "hidden",
+            }}
+          >
+            {r?.navn || r?.id || "Oppgave"}
+          </div>
+        </div>
+      );
+    }
+    return nodes;
+  };
+  /* ==== [BLOCK: task blocks v0.2] END ==== */
+
   return (
     <div style={{ overflow: "hidden" }}>
       <div className="hide-native-scrollbars" ref={scrollerRef} style={{ overflowX: "auto", overflowY: "hidden" }}>
@@ -196,14 +281,19 @@ export default function GanttDiagram({
         <div style={{ position: "relative", minWidth: totalWidth, height: contentHeight - HEADER_H }}>
           {renderWeekendShading()}
           {renderTodayLine()}
+          {/* radlinjer */}
           <div>
             {rows.map((_, i) => (
               <div key={i} style={{ height: ROW_H, borderBottom: "1px solid var(--grid)" }} />
             ))}
+          </div>
+          {/* oppgaveblokker */}
+          <div style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}>
+            {renderTasks()}
           </div>
         </div>
       </div>
     </div>
   );
 }
-/* ==== [BLOCK: GanttDiagram – zoom, overlays, width-report] END ==== */
+/* ==== [BLOCK: GanttDiagram – zoom, overlays, width-report + task blocks v0.2] END ==== */
