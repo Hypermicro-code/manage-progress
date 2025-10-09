@@ -279,7 +279,7 @@ const theme = useMemo(
   }),
   []
 );
-const contentHeight = HEADER_H + rows.length * ROW_H + 2;
+const contentHeight = HEADER_H + rows.length * ROW_H + 6;
 const editorHeight = Math.max(height, contentHeight);
   
 /* ==== [BLOCK: Tabell theme + sizing] END ==== */
@@ -306,9 +306,11 @@ return (
       rowMarkers="number"
       smoothScrollX
       smoothScrollY
-      /** Viktig: sett høyder som props for piksel-synk med Gantt */
+      /** Viktig: tving samme høyder som Gantt */
       headerHeight={HEADER_H}
       rowHeight={ROW_H}
+      /** Slå av Glide sin ekstra overscroll nederst (ellers kan V-scroll dukke opp) */
+      overscrollY={0}
       theme={theme as any}
       onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
     />
