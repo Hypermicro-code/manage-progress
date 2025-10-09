@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@glideapps/glide-data-grid": "^6.0.4",
+    "@glideapps/glide-data-grid": "^6.0.1",
     "marked": "^4.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
