@@ -331,6 +331,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
       {/* Masker ev. intern vertikal scrollbar helt til høyre */}
       <div className="tabell-vmask" aria-hidden />
+      <div className="tabell-hmask" aria-hidden />
     </div>
   );
   /* ==== [BLOCK: Tabell render] END ==== */
