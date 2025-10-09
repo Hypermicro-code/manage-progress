@@ -1,4 +1,5 @@
 // Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
+// v0.2: Beregningsregler for Start/Slutt/Varighet (kalender-agnostisk – rene dager)
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -52,6 +53,43 @@ type Props = {
   onTopRowChange?: (top: number) => void;
 };
 /* ==== [BLOCK: types & handles] END ==== */
+
+/* ==== [BLOCK: date helpers (v0.2)] BEGIN ==== */
+function parseDate(s: string | number | null | undefined): Date | null {
+  if (!s) return null;
+  const str = String(s).trim();
+  // Aksepter YYYY-MM-DD (primært); fallback til Date(...) hvis gyldig
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if (m) {
+    const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
+    const dt = new Date(Date.UTC(y, mo, d));
+    // normaliser til lokal 00:00 for enkelhet (dag-basert, ikke tidssone-kritisk nå)
+    dt.setHours(0, 0, 0, 0);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  const dt = new Date(str);
+  return isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+function formatDate(d: Date | null): string {
+  if (!d) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function diffDaysInclusive(a: Date, b: Date): number {
+  // inklusiv varighet: 2025-01-01 til 2025-01-01 = 1 dag
+  const ms = b.getTime() - a.getTime();
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  return days + 1;
+}
+/* ==== [BLOCK: date helpers (v0.2)] END ==== */
 
 /* ==== [BLOCK: component] BEGIN ==== */
 const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
@@ -127,29 +165,94 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   );
   /* ==== [BLOCK: getCellContent] END ==== */
 
-  /* ==== [BLOCK: onCellEdited] BEGIN ==== */
+  /* ==== [BLOCK: onCellEdited (v0.2 rules)] BEGIN ==== */
   const onCellEdited = React.useCallback(
     (item: Item, newValue: GridCell) => {
       const [col, row] = item;
       const key = TABLE_COLS[col].key as keyof Rad;
       if (!rows[row]) return;
 
+      // Hent dagens verdier for reglene
+      const curr = rows[row];
+      const startD = parseDate(String(curr.start || ""));
+      const sluttD = parseDate(String(curr.slutt || ""));
+      const varighetN = typeof curr.varighet === "number"
+        ? curr.varighet
+        : Number(String(curr.varighet ?? "").replace(",", "."));
+
+      const commit = (k: keyof Rad, v: any) => setCell(row, k, v as any);
+
+      // Oppdater feltet som ble redigert
+      let editedVal: any = undefined;
       if (newValue.kind === GridCellKind.Number) {
-        const n =
+        editedVal =
           typeof newValue.data === "number" && !Number.isNaN(newValue.data)
             ? newValue.data
             : "";
-        setCell(row, key, n as any);
-        return;
+        commit(key, editedVal);
+      } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
+        editedVal = (newValue.data ?? "") as any;
+        commit(key, editedVal);
+      } else {
+        // andre typer – bare commit original display/data
+        const raw = (newValue as any).data ?? (newValue as any).displayData ?? "";
+        commit(key, raw);
       }
-      if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
-        setCell(row, key, (newValue.data ?? "") as any);
-        return;
-      }
+
+      // Etter at feltet er oppdatert, kjør reglene
+      // Re-les relevante felt for presis beregning:
+      const getRow = () => rows[row];
+
+      // Sanitizer helpers
+      const toDateOrNull = (s: any) => parseDate(String(s ?? "").trim());
+      const toNumOrNull = (n: any) => {
+        const v = Number(String(n ?? "").replace(",", "."));
+        return Number.isFinite(v) ? v : null;
+      };
+
+      // NB: Reglene er kalender-agnostiske, og bruker inklusiv varighet
+      setTimeout(() => {
+        const rNow = getRow();
+
+        const sNow = toDateOrNull(rNow.start);
+        const eNow = toDateOrNull(rNow.slutt);
+        const durNow = toNumOrNull(rNow.varighet);
+
+        // Regel 1: Endrer bruker Start + Varighet → regn ut Slutt
+        if (key === "start") {
+          if (sNow && durNow && durNow > 0) {
+            const newEnd = addDays(sNow, Math.max(0, durNow - 1));
+            commit("slutt", formatDate(newEnd));
+          } else if (sNow && !durNow && eNow) {
+            // Hvis Start + Slutt finnes (men ikke varighet), hold slutt – varighet kalkuleres i regel 2 (under)
+          }
+        }
+
+        // Regel 2: Start + Slutt → Varighet
+        if (key === "slutt" || key === "start") {
+          const s2 = toDateOrNull(getRow().start);
+          const e2 = toDateOrNull(getRow().slutt);
+          if (s2 && e2 && e2.getTime() >= s2.getTime()) {
+            const d = diffDaysInclusive(s2, e2);
+            commit("varighet", d);
+          }
+        }
+
+        // Regel 3: Varighet alene → oppdater Slutt (hvis Start finnes)
+        if (key === "varighet") {
+          const dur3 = toNumOrNull(getRow().varighet);
+          const s3 = toDateOrNull(getRow().start);
+          if (s3 && dur3 && dur3 > 0) {
+            const newEnd = addDays(s3, Math.max(0, dur3 - 1));
+            commit("slutt", formatDate(newEnd));
+          }
+          // Hvis varighet settes tom/ugyldig – ikke rør slutt (akseptkriteriet: ingen NaN/tekstlukter)
+        }
+      }, 0);
     },
     [rows, setCell]
   );
-  /* ==== [BLOCK: onCellEdited] END ==== */
+  /* ==== [BLOCK: onCellEdited (v0.2 rules)] END ==== */
 
   /* ==== [BLOCK: selection state + lift] BEGIN ==== */
   const [selection, setSelection] = useState<GridSelection>({
@@ -282,30 +385,22 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: imperative handle] END ==== */
 
   /* ==== [BLOCK: Tabell theme + sizing] BEGIN ==== */
-  /* ==== [BLOCK: Tabell theme + sizing] BEGIN ==== */
-const theme = useMemo(
-  () => ({
-    // Farger og linjer – tydelig kontrast
-    headerFontColor: "#111",
-    headerBackgroundColor: "#ffffff",
-    headerBottomBorder: "2px solid #000", // sort skille mellom header og rader
-
-    // Gridlinjer i tabellen
-    accentColor: "#000",                // fokusramme + utvalg
-    borderColor: "#000",                // kolonnegrenser og radlinjer
-    horizontalBorderColor: "#000",      // mellom rader
-    verticalBorderColor: "#000",        // mellom kolonner
-    gridLineColor: "#000",              // fallback i noen Glide-versjoner
-
-    // Tekst
-    textDark: "#111",
-    textMedium: "#111",
-    textLight: "#111",
-  }),
-  []
-);
-/* ==== [BLOCK: Tabell theme + sizing] END ==== */
-
+  const theme = useMemo(
+    () => ({
+      headerFontColor: "#111",
+      headerBackgroundColor: "#ffffff",
+      headerBottomBorder: "2px solid #000",
+      accentColor: "#000",
+      borderColor: "#000",
+      horizontalBorderColor: "#000",
+      verticalBorderColor: "#000",
+      gridLineColor: "#000",
+      textDark: "#111",
+      textMedium: "#111",
+      textLight: "#111",
+    }),
+    []
+  );
 
   // Editorhøyde > innhold for å unngå intern V-scroll (liten buffer)
   const editorHeight = HEADER_H + rows.length * ROW_H + 20;
