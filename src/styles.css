@@ -104,11 +104,16 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantare
   background:#fff;border:1px solid var(--line);border-radius:0;box-shadow:0 6px 18px rgba(0,0,0,.04);overflow:hidden;
 }
 /* ==== [BLOCK: panel radius OFF (behold toolbar rund) ] END ==== */
-/* ==== [BLOCK: Tabell – hide internal vertical scrollbar] BEGIN ==== */
-.tabell-grid .gdg-scrollbar-vertical {
+
+/* ==== [BLOCK: Tabell – nuke internal vertical scrollbar] BEGIN ==== */
+.tabell-grid [class*="scrollbar-vertical"],
+.tabell-grid div[role="scrollbar"][aria-orientation="vertical"] {
   display: none !important;
 }
-.tabell-grid .gdg-scroll-region {
-  overflow-y: hidden !important; /* belt & suspenders */
+.tabell-grid [class*="scroll-region"],
+.tabell-grid [class*="ScrollRegion"],
+.tabell-grid .gdg-scroll-region,
+.tabell-grid .gdg-main {
+  overflow-y: hidden !important;
 }
-/* ==== [BLOCK: Tabell – hide internal vertical scrollbar] END ==== */
+/* ==== [BLOCK: Tabell – nuke internal vertical scrollbar] END ==== */
