@@ -1,0 +1,31 @@
+{
+  "name": "manage-prosess",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@glideapps/glide-data-grid": "^6.0.4",
+    "marked": "^4.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8"
+  },
+  "overrides": {
+    "marked": "^4.3.0"
+  },
+  "engines": {
+    "node": ">=20 <21"
+  }
+}
