@@ -21,6 +21,9 @@ import DataEditor, {
 import "@glideapps/glide-data-grid/dist/index.css";
 import type { Rad } from "../core/types";
 import { HEADER_H, ROW_H, TABLE_COLS } from "../core/layout";
+/* ==== [BLOCK: imports – header sync] BEGIN ==== */
+import { HEADER_H, ROW_H } from "../core/layout";
+/* ==== [BLOCK: imports – header sync] END ==== */
 /* ==== [BLOCK: imports] END ==== */
 
 /* ==== [BLOCK: types & handles] BEGIN ==== */
@@ -275,6 +278,8 @@ const theme = useMemo(
   () => ({
     headerHeight: HEADER_H,
     rowHeight: ROW_H,
+    headerFontColor: "#6b7280",     // samme som Gantt-labels
+    headerBackgroundColor: "#ffffff"
     // Sikre lik bunnlinje som Gantt-headeren
     headerBottomBorder: "2px solid var(--line-strong)",
   }),
@@ -309,6 +314,20 @@ const theme = useMemo(
         smoothScrollY
         theme={theme as any}
         onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
+        headerHeight={HEADER_H}       // <- nøyaktig samme høyde som Gantt
+    rowHeight={ROW_H}
+    theme={theme}                 // <- hvis du bruker theme-blokka over
+  />
+  {/* Tegn samme bunnlinje som i Gantt-headeren (2px var(--line-strong)) */}
+  <div
+    aria-hidden
+    style={{
+      position: "absolute",
+      left: 0,
+      right: 0,
+      top: HEADER_H,              // ligger akkurat under headeren
+      borderTop: "2px solid var(--line-strong)",
+      pointerEvents: "none"
       />
     </div>
   );
