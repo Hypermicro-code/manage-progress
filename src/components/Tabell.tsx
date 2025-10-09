@@ -48,6 +48,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 ) {
   const editorRef = useRef<DataEditorRef | null>(null);
 
+  /* ==== [BLOCK: copy – refs] BEGIN ==== */
+const containerRef = useRef<HTMLDivElement | null>(null);
+/* ==== [BLOCK: copy – refs] END ==== */
+  
   // Glide Columns
   const columns = useMemo<GridColumn[]>(
     () =>
@@ -155,6 +159,82 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     onSelectionChange?.(out);
   }, [selection, onSelectionChange]);
 
+  /* ==== [BLOCK: copy – helpers + effect] BEGIN ==== */
+const getCellString = React.useCallback((r: number, c: number): string => {
+  const cell = getCellContent([c, r]);
+  // Bruk displayData der det finnes, ellers data
+  // Number/Text/Markdown dekkes – konverter til streng
+  const anyCell: any = cell as any;
+  const disp = anyCell?.displayData;
+  const data = anyCell?.data;
+  if (disp !== undefined && disp !== null) return String(disp);
+  if (data !== undefined && data !== null) return String(data);
+  return "";
+}, [getCellContent]);
+
+const copySelectionToClipboard = React.useCallback(() => {
+  if (!selection.current) return false;
+  const { x, y, width, height } = selection.current.range;
+  const lines: string[] = [];
+  for (let rr = y; rr < y + height; rr++) {
+    const cols: string[] = [];
+    for (let cc = x; cc < x + width; cc++) {
+      // TSV escape: erstatte tab/newline med mellomrom
+      const raw = getCellString(rr, cc).replace(/\t/g, " ").replace(/\r?\n/g, " ");
+      cols.push(raw);
+    }
+    lines.push(cols.join("\t"));
+  }
+  const tsv = lines.join("\n");
+
+  // Sikker kopi (med fallback)
+  const doCopy = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(tsv);
+      } else {
+        throw new Error("no clipboard api");
+      }
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = tsv;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch {}
+      document.body.removeChild(ta);
+    }
+  };
+  void doCopy();
+  return true;
+}, [selection, getCellString]);
+
+// Lytt på Cmd/Ctrl+C når fokus er i grid-containeren
+useEffect(() => {
+  const onKeyDown = (e: KeyboardEvent) => {
+    const within =
+      containerRef.current &&
+      (containerRef.current === document.activeElement ||
+        containerRef.current.contains(document.activeElement));
+    if (!within) return;
+
+    const isMac = navigator.platform.toLowerCase().includes("mac");
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+
+    if (mod && e.key.toLowerCase() === "c") {
+      const handled = copySelectionToClipboard();
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+  };
+  window.addEventListener("keydown", onKeyDown, { capture: true });
+  return () => window.removeEventListener("keydown", onKeyDown, { capture: true } as any);
+}, [copySelectionToClipboard]);
+/* ==== [BLOCK: copy – helpers + effect] END ==== */
+
   // Klipp/lim – vi map’er celler manuelt
   const onPaste = React.useCallback(
     (target: Item, data: readonly (readonly (string | number)[])[]) => {
@@ -194,7 +274,11 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
 
   return (
-    <div className="hide-native-scrollbars" style={{ overflow: "hidden" }}>
+    <div
+  ref={containerRef}
+  className="hide-native-scrollbars"
+  style={{ overflow: "hidden" }}
+>
       /* ==== [BLOCK: DataEditor element – FIX] BEGIN ==== */
 <DataEditor
   ref={editorRef}
