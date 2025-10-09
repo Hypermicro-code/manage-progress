@@ -83,13 +83,14 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   };
 
   const onSplitterMove = (clientX: number) => {
-    if (!dragStart.current) return;
-    const { x, frac, w } = dragStart.current;
-    const dx = clientX - x;
-    const dFrac = dx / w; // positiv dx => større Gantt
-    const next = Math.min(1, Math.max(0, frac + dFrac));
-    setGanttFrac(next);
-  };
+  if (!dragStart.current) return;
+  const { x, frac, w } = dragStart.current;
+  const dx = clientX - x;        // >0 når du drar mot høyre
+  const dFrac = dx / w;          // konverter px → andel av total bredde
+  // Viktig: trekk fra, så splitteren følger pekeren
+  const next = Math.min(1, Math.max(0, frac - dFrac));
+  setGanttFrac(next);
+};
 
   useEffect(() => {
     if (!dragging) return;
@@ -156,8 +157,9 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
           className={`panels${dragging ? " panels-dragging" : ""}`}
           style={{
             minHeight: contentHeight,
-            gridTemplateColumns: `${Math.max(0, tableFrac * 100)}% 8px ${Math.max(0, ganttFrac * 100)}%`,
+            gridTemplateColumns: `minmax(0, ${Math.max(0, (1 - ganttFrac) * 100)}%) 8px minmax(0, ${Math.max(0, ganttFrac * 100)}%)`,
           }}
+
         >
           {/* === Tabell === */}
           <div className="panel" style={{ alignSelf: "start" }}>
