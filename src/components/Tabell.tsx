@@ -279,9 +279,9 @@ const theme = useMemo(
   }),
   []
 );
-
-// Hindre intern vertikal scroll ved å gi editoren “full” høyde
-const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
+const contentHeight = HEADER_H + rows.length * ROW_H + 2;
+const editorHeight = Math.max(height, contentHeight);
+  
 /* ==== [BLOCK: Tabell theme + sizing] END ==== */
 
 
