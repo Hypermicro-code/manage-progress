@@ -280,10 +280,10 @@ const theme = useMemo(
   []
 );
 
-// Gi editoren klart mer høyde enn innholdet for å unngå intern V-scroll
-// +12 px buffer tar høyde for borders/subpixel og Glide sitt overheng
-const editorHeight = HEADER_H + rows.length * ROW_H + 12;
+// Editorhøyde > innhold for å unngå intern V-scroll (liten buffer)
+const editorHeight = HEADER_H + rows.length * ROW_H + 20;
 /* ==== [BLOCK: Tabell theme + sizing] END ==== */
+
 
 
 
@@ -292,12 +292,12 @@ return (
   <div
     ref={containerRef}
     className="hide-native-scrollbars tabell-grid"
-    style={{ overflow: "hidden" }}
+    style={{ overflow: "hidden", position: "relative" }}
   >
     <DataEditor
       ref={editorRef}
       width="100%"
-      height={editorHeight}          // = HEADER_H + rows*ROW_H (+ liten buffer i theme-blokka)
+      height={editorHeight}
       rows={rows.length}
       columns={columns}
       getCellContent={getCellContent}
@@ -314,9 +314,13 @@ return (
       theme={theme as any}
       onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
     />
+
+    {/* Masker Glide sin interne vertikale scrollbar helt til høyre */}
+    <div className="tabell-vmask" aria-hidden />
   </div>
 );
 /* ==== [BLOCK: Tabell render] END ==== */
+
 
 
 });
