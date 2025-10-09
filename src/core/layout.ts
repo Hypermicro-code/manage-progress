@@ -13,3 +13,21 @@ export const TABLE_COLS = [
   { key: "status",     name: "Status",    width: 200 }
 ] as const;
 /* ==== [BLOCK: layout constants] END ==== */
+
+/* ==== [BLOCK: gantt zoom presets] BEGIN ==== */
+export type GanttZoom = "day" | "week" | "month";
+
+/** px per “enhet” (dag/uke/måned) */
+export const GANTT_ZOOM_PX: Record<GanttZoom, number> = {
+  day: 24,   // 1 dag = 24 px
+  week: 42,  // 1 uke = 42 px
+  month: 90, // 1 mnd = 90 px
+};
+
+/** horisont-horisont: hvor mange enheter tegnes */
+export const GANTT_HORIZON_UNITS: Record<GanttZoom, number> = {
+  day: 240,   // ~8 mnd
+  week: 104,  // 2 år
+  month: 36,  // 3 år
+};
+/* ==== [BLOCK: gantt zoom presets] END ==== */
