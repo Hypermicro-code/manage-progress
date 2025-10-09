@@ -270,8 +270,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: imperative handle] END ==== */
 
   /* ==== [BLOCK: theme + sizing] BEGIN ==== */
-  const theme = useMemo(
-    const theme = useMemo(
+const theme = useMemo(
   () => ({
     headerHeight: HEADER_H,
     rowHeight: ROW_H,
@@ -282,12 +281,11 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   []
 );
 
-  // Hindre intern vertikal scroll ved å gi editoren “full” høyde
-  const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
-  /* ==== [BLOCK: theme + sizing] END ==== */
+// Hindre intern vertikal scroll ved å gi editoren “full” høyde
+const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
+/* ==== [BLOCK: theme + sizing] END ==== */
 
-  /* ==== [BLOCK: render] BEGIN ==== */
-  /* ==== [BLOCK: Tabell render] BEGIN ==== */
+/* ==== [BLOCK: Tabell render] BEGIN ==== */
 return (
   <div
     ref={containerRef}
@@ -311,23 +309,11 @@ return (
       theme={theme as any}
       onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
     />
+  </div>
+);
 /* ==== [BLOCK: Tabell render] END ==== */
-      {/* Tegn samme bunnlinje som i Gantt-headeren (2px var(--line-strong)) */}
-      <div
-        aria-hidden
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: HEADER_H - 1,
-          borderTop: "2px solid var(--line-strong)",
-          pointerEvents: "none",
-        }}
-      />
-    </div>
-  );
-  /* ==== [BLOCK: render] END ==== */
 });
 /* ==== [BLOCK: component] END ==== */
 
 export default Tabell;
+
