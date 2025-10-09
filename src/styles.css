@@ -8,22 +8,23 @@
 html,body,#root{height:100%}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;background:var(--bg);color:var(--txt)}
 
-.wrapper{max-width:1600px;margin:16px auto;padding:0 12px}
+/* ==== [BLOCK: wrapper wider] BEGIN ==== */
+.wrapper{
+  max-width: 1800px;   /* drar panelene lenger ut */
+  margin:16px auto;
+  padding:0 8px;       /* litt luft mot kant */
+}
+/* ==== [BLOCK: wrapper wider] END ==== */
 
 /* Verktøylinje */
 .toolbar{display:flex;gap:8px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 10px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
 .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 
-/* Scroll-host – eneste vertikale scroll */
-.scroll-host{
-  height:calc(100vh - 140px);
-  overflow:auto;
-  border-radius:12px;
-}
-
-/* To paneler side-om-side */
-.panels{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;min-height:520px}
+/* ==== [BLOCK: panels gap + full-width feel] BEGIN ==== */
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;min-height:520px}
+.scroll-host.wide{border-radius:12px}
+/* ==== [BLOCK: panels gap + full-width feel] END ==== */
 
 /* Panelkort */
 .panel{
@@ -47,3 +48,41 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantare
 
 /* Footer */
 .footer{margin-top:12px;color:#6b7280;font-size:12px}
+
+/* ==== [BLOCK: footer bar] BEGIN ==== */
+.footer-bar{
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-top: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.06);
+}
+.footer-scrollers{display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: center}
+.footer-slider{display:flex;align-items:center;gap:8px}
+.footer-slider label{font-size:12px;color:#6b7280;min-width:48px;text-align:right}
+.footer-credit{font-size:12px;color:#6b7280;white-space:nowrap}
+.hslider{width:100%}
+/* ==== [BLOCK: footer bar] END ==== */
+
+/* ==== [BLOCK: scroll-host height tune for sticky footer] BEGIN ==== */
+/* Gi plass til toolbar + footer i viewporten */
+.scroll-host{
+  height: calc(100vh - 160px);
+  overflow: auto;
+  border-radius: 12px;
+}
+/* ==== [BLOCK: scroll-host height tune for sticky footer] END ==== */
+
+/* ==== [BLOCK: panel radius OFF (behold toolbar rund) ] BEGIN ==== */
+.panel{
+  background:#fff;border:1px solid var(--line);border-radius:0;box-shadow:0 6px 18px rgba(0,0,0,.04);overflow:hidden;
+}
+/* ==== [BLOCK: panel radius OFF (behold toolbar rund) ] END ==== */
