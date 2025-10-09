@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Tabell, { TabellHandle } from "./Tabell";
-import GanttDiagram from "./GanttDiagram";
-import { HEADER_H, ROW_H, GANTT_ZOOM_PX, type GanttZoom } from "../core/layout";
+import GanttDiagram, { GanttZoom } from "./GanttDiagram";
+import { HEADER_H, ROW_H, GANTT_ZOOM_PX } from "../core/layout";
 import type { Rad, KolonneKey } from "../core/types";
 
 /* ==== [BLOCK: props] BEGIN ==== */
@@ -30,12 +30,17 @@ function getRelativeTop(el: HTMLElement, ancestor: HTMLElement): number {
 }
 /* ==== [BLOCK: helpers – relative offset] END ==== */
 
-export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, apiBridge }: Props) {
+export default function Fremdriftsplan({
+  rows,
+  setCell,
+  addRows,
+  clearCells,
+  apiBridge,
+}: Props) {
   /* ==== [BLOCK: refs & local state] BEGIN ==== */
   const scrollHostRef = useRef<HTMLDivElement | null>(null);
   const panelsRef = useRef<HTMLDivElement | null>(null);
   const tablePanelRef = useRef<HTMLDivElement | null>(null);
-  const ganttPanelRef = useRef<HTMLDivElement | null>(null);
 
   const tabellRef = useRef<TabellHandle | null>(null);
 
@@ -64,7 +69,10 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   /* ==== [BLOCK: expose API upwards] END ==== */
 
   /* ==== [BLOCK: dimensions] BEGIN ==== */
-  const contentHeight = useMemo(() => HEADER_H + rows.length * ROW_H, [rows.length]);
+  const contentHeight = useMemo(
+    () => HEADER_H + rows.length * ROW_H,
+    [rows.length]
+  );
   /* ==== [BLOCK: dimensions] END ==== */
 
   /* ==== [BLOCK: toolbar actions] BEGIN ==== */
@@ -80,9 +88,8 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
   /* ==== [BLOCK: topRow sync from scroll-host] BEGIN ==== */
   useEffect(() => {
     const host = scrollHostRef.current;
-    const panels = panelsRef.current;
     const tablePanel = tablePanelRef.current;
-    if (!host || !panels || !tablePanel) return;
+    if (!host || !tablePanel) return;
 
     const updateTop = () => {
       const baseY = getRelativeTop(tablePanel, host) + HEADER_H; // start på rad-området i tabell-panelet
@@ -107,9 +114,15 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
       {/* Toolbar */}
       <div className="toolbar" style={{ marginBottom: 10, gap: 10 }}>
         {/* ==== [BLOCK: toolbar buttons] BEGIN ==== */}
-        <button className="btn primary" onClick={() => addRows(20)}>+20 rader</button>
-        <button className="btn" onClick={onClearSelected} title="Tøm markerte celler">Tøm markerte</button>
-        <button className="btn" onClick={onCopySelected} title="Kopier utvalg til utklippstavle">Kopier</button>
+        <button className="btn primary" onClick={() => addRows(20)}>
+          +20 rader
+        </button>
+        <button className="btn" onClick={onClearSelected} title="Tøm markerte celler">
+          Tøm markerte
+        </button>
+        <button className="btn" onClick={onCopySelected} title="Kopier utvalg til utklippstavle">
+          Kopier
+        </button>
         {/* ==== [BLOCK: toolbar buttons] END ==== */}
 
         {/* ==== [BLOCK: gantt controls] BEGIN ==== */}
@@ -150,7 +163,7 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
 
       {/* Felles scroll-host – eneste vertikale scroll */}
       <div ref={scrollHostRef} className="scroll-host">
-        <div ref={panelsRef} className="panels" style={{ minHeight: contentHeight }}>
+        <div className="panels" style={{ minHeight: contentHeight }}>
           {/* === Tabell-panel === */}
           <div ref={tablePanelRef} className="panel" style={{ alignSelf: "start" }}>
             <div className="panel-header">Tabell</div>
@@ -181,8 +194,8 @@ export default function Fremdriftsplan({ rows, setCell, addRows, clearCells, api
             </div>
           </div>
 
-          {/* === Gantt-panel (stub m/zoom & overlays) === */}
-          <div ref={ganttPanelRef} className="panel" style={{ alignSelf: "start" }}>
+          {/* === Gantt-panel === */}
+          <div className="panel" style={{ alignSelf: "start" }}>
             <div className="panel-header">Gantt</div>
             <GanttDiagram
               rows={rows}
