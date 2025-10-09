@@ -21,9 +21,6 @@ import DataEditor, {
 import "@glideapps/glide-data-grid/dist/index.css";
 import type { Rad } from "../core/types";
 import { HEADER_H, ROW_H, TABLE_COLS } from "../core/layout";
-/* ==== [BLOCK: imports – header sync] BEGIN ==== */
-import { HEADER_H, ROW_H } from "../core/layout";
-/* ==== [BLOCK: imports – header sync] END ==== */
 /* ==== [BLOCK: imports] END ==== */
 
 /* ==== [BLOCK: types & handles] BEGIN ==== */
@@ -72,7 +69,8 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
   useEffect(() => {
     const total = columns.reduce(
-      (acc, c) => acc + (("width" in c && typeof (c as any).width === "number") ? (c as any).width : 120),
+      (acc, c) =>
+        acc + (("width" in c && typeof (c as any).width === "number" ? (c as any).width : 120)),
       0
     );
     onTotalWidthChange?.(total);
@@ -272,20 +270,17 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: imperative handle] END ==== */
 
   /* ==== [BLOCK: theme + sizing] BEGIN ==== */
-  
-  /* ==== [BLOCK: Tabell theme – header sync] BEGIN ==== */
-const theme = useMemo(
-  () => ({
-    headerHeight: HEADER_H,
-    rowHeight: ROW_H,
-    headerFontColor: "#6b7280",     // samme som Gantt-labels
-    headerBackgroundColor: "#ffffff"
-    // Sikre lik bunnlinje som Gantt-headeren
-    headerBottomBorder: "2px solid var(--line-strong)",
-  }),
-  []
-);
-/* ==== [BLOCK: Tabell theme – header sync] END ==== */
+  const theme = useMemo(
+    () => ({
+      headerHeight: HEADER_H,
+      rowHeight: ROW_H,
+      // match Gantt
+      headerFontColor: "#6b7280",
+      headerBackgroundColor: "#ffffff",
+      headerBottomBorder: "2px solid var(--line-strong)",
+    }),
+    []
+  );
 
   // Hindre intern vertikal scroll ved å gi editoren “full” høyde
   const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
@@ -296,7 +291,7 @@ const theme = useMemo(
     <div
       ref={containerRef}
       className="hide-native-scrollbars"
-      style={{ overflow: "hidden" }}
+      style={{ overflow: "hidden", position: "relative" }}
     >
       <DataEditor
         ref={editorRef}
@@ -314,20 +309,18 @@ const theme = useMemo(
         smoothScrollY
         theme={theme as any}
         onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
-        headerHeight={HEADER_H}       // <- nøyaktig samme høyde som Gantt
-    rowHeight={ROW_H}
-    theme={theme}                 // <- hvis du bruker theme-blokka over
-  />
-  {/* Tegn samme bunnlinje som i Gantt-headeren (2px var(--line-strong)) */}
-  <div
-    aria-hidden
-    style={{
-      position: "absolute",
-      left: 0,
-      right: 0,
-      top: HEADER_H,              // ligger akkurat under headeren
-      borderTop: "2px solid var(--line-strong)",
-      pointerEvents: "none"
+      />
+      {/* Tegn samme bunnlinje som i Gantt-headeren (2px var(--line-strong)) */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: HEADER_H,
+          borderTop: "2px solid var(--line-strong)",
+          pointerEvents: "none",
+        }}
       />
     </div>
   );
