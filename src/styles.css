@@ -1,0 +1,46 @@
+:root{
+  --grid:#e5e7eb; --line:#d1d5db; --line-strong:#9ca3af;
+  --bg:#fafafa; --txt:#111827; --accent:#2563eb;
+  --row-h:34; --header-h:56;
+}
+
+*{box-sizing:border-box}
+html,body,#root{height:100%}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;background:var(--bg);color:var(--txt)}
+
+.wrapper{max-width:1600px;margin:16px auto;padding:0 12px}
+
+/* Verktøylinje */
+.toolbar{display:flex;gap:8px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 10px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* Scroll-host – eneste vertikale scroll */
+.scroll-host{
+  height:calc(100vh - 140px);
+  overflow:auto;
+  border-radius:12px;
+}
+
+/* To paneler side-om-side */
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;min-height:520px}
+
+/* Panelkort */
+.panel{
+  background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.04);
+  overflow:hidden;
+}
+
+/* Header-høyde må matche Tabell og Gantt */
+.panel-header{height:var(--header-h);border-bottom:2px solid var(--line-strong);display:flex;align-items:center;padding:0 10px;font-weight:600}
+
+/* Sliderne er alltid synlige */
+.hslider-wrap{padding:8px 10px;border-top:1px solid var(--line);background:#fff}
+.hslider{width:100%}
+
+/* Skjul native scrollbars i DataEditor, men behold programmatisk scrolling */
+.hide-native-scrollbars::-webkit-scrollbar{display:none}
+.hide-native-scrollbars{-ms-overflow-style:none;scrollbar-width:none}
+
+/* Footer */
+.footer{margin-top:12px;color:#6b7280;font-size:12px}
