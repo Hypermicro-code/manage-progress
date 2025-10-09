@@ -140,3 +140,18 @@ body{
 }
 /* ==== [BLOCK: Tabell – bottom mask] END ==== */
 
+/* ==== [BLOCK: splitter styles] BEGIN ==== */
+.splitter{
+  background: linear-gradient(to right, transparent, var(--line) 40%, transparent);
+  cursor: col-resize;
+  width: 8px; /* matcher gridTemplateColumns “8px” */
+  user-select: none;
+}
+.panels-dragging .splitter{
+  background: linear-gradient(to right, transparent, var(--line-strong) 40%, transparent);
+}
+.no-select, .panels-dragging{
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+/* ==== [BLOCK: splitter styles] END ==== */
