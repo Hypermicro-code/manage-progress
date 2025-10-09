@@ -1,4 +1,4 @@
-// Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim og tøm markerte
+// Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -23,83 +23,80 @@ import type { Rad } from "../core/types";
 import { HEADER_H, ROW_H, TABLE_COLS } from "../core/layout";
 /* ==== [BLOCK: imports] END ==== */
 
+/* ==== [BLOCK: types & handles] BEGIN ==== */
 export type KolonneKey = (typeof TABLE_COLS)[number]["key"];
 
 export type TabellHandle = {
   scrollToX: (x: number) => void;
+  copySelectionToClipboard: () => boolean;
 };
 
 type Props = {
   rows: Rad[];
   setCell: (rowIndex: number, key: keyof Rad, value: Rad[keyof Rad]) => void;
 
-  height: number; // total content height (for å unngå intern V-scroll)
-  scrollX: number; // styres utenfra
+  /** total content height (for å unngå intern V-scroll) */
+  height: number;
+  /** horisontal scrollposisjon styres utenfra */
+  scrollX: number;
   onScrollXChange: (x: number) => void;
   onTotalWidthChange?: (w: number) => void;
 
   onSelectionChange?: (cells: { r: number; c: KolonneKey }[]) => void;
 };
+/* ==== [BLOCK: types & handles] END ==== */
 
 /* ==== [BLOCK: component] BEGIN ==== */
 const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   { rows, setCell, height, scrollX, onScrollXChange, onTotalWidthChange, onSelectionChange },
   ref
 ) {
+  /* ==== [BLOCK: refs] BEGIN ==== */
   const editorRef = useRef<DataEditorRef | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  /* ==== [BLOCK: refs] END ==== */
 
-  /* ==== [BLOCK: copy – refs] BEGIN ==== */
-const containerRef = useRef<HTMLDivElement | null>(null);
-/* ==== [BLOCK: copy – refs] END ==== */
-  
-  // Glide Columns
+  /* ==== [BLOCK: columns] BEGIN ==== */
   const columns = useMemo<GridColumn[]>(
     () =>
       TABLE_COLS.map((col) => ({
         id: col.key,
         title: col.name,
-        width: col.width, // lov i SizedGridColumn; unionen tillater det
+        width: col.width, // i unionen er dette gyldig for SizedGridColumn
       })),
     []
   );
 
-  // Oppdater total bredde ut til parent (guard for union uten width)
   useEffect(() => {
-    const total = columns.reduce((acc, c) => acc + (("width" in c && typeof c.width === "number") ? c.width : 120), 0);
+    const total = columns.reduce(
+      (acc, c) => acc + (("width" in c && typeof (c as any).width === "number") ? (c as any).width : 120),
+      0
+    );
     onTotalWidthChange?.(total);
   }, [columns, onTotalWidthChange]);
+  /* ==== [BLOCK: columns] END ==== */
 
-  // Ekstern scroll -> inn i DataEditor (v6.0.1: scrollTo(x, y))
+  /* ==== [BLOCK: external H-scroll sync] BEGIN ==== */
   useEffect(() => {
+    // Glide 6.0.1 bruker signaturen scrollTo(x, y)
     editorRef.current?.scrollTo(scrollX, 0);
   }, [scrollX]);
+  /* ==== [BLOCK: external H-scroll sync] END ==== */
 
-  // Eksponér scrollToX
-  useImperativeHandle(ref, () => ({
-    scrollToX: (x: number) => editorRef.current?.scrollTo(x, 0),
-  }));
-
-  // Hent celle-innhold
+  /* ==== [BLOCK: getCellContent] BEGIN ==== */
   const getCellContent = React.useCallback(
     (item: Item): GridCell => {
       const [col, row] = item;
       const r = rows[row];
       const key = TABLE_COLS[col].key as keyof Rad;
       const v = r?.[key] ?? "";
+
       if (key === "varighet" || key === "ap" || key === "pp") {
         const numStr = v === "" ? "" : String(v);
         return {
           kind: GridCellKind.Number,
           displayData: numStr,
           data: numStr === "" ? undefined : Number(numStr),
-          allowOverlay: true,
-        };
-        }
-      if (key === "start" || key === "slutt") {
-        return {
-          kind: GridCellKind.Text,
-          displayData: String(v ?? ""),
-          data: String(v ?? ""),
           allowOverlay: true,
         };
       }
@@ -112,8 +109,9 @@ const containerRef = useRef<HTMLDivElement | null>(null);
     },
     [rows]
   );
+  /* ==== [BLOCK: getCellContent] END ==== */
 
-  // Redigering
+  /* ==== [BLOCK: onCellEdited] BEGIN ==== */
   const onCellEdited = React.useCallback(
     (item: Item, newValue: GridCell) => {
       const [col, row] = item;
@@ -135,8 +133,9 @@ const containerRef = useRef<HTMLDivElement | null>(null);
     },
     [rows, setCell]
   );
+  /* ==== [BLOCK: onCellEdited] END ==== */
 
-  // Selection -> løft opp koordinater for “Tøm markerte”
+  /* ==== [BLOCK: selection state + lift] BEGIN ==== */
   const [selection, setSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
@@ -158,84 +157,9 @@ const containerRef = useRef<HTMLDivElement | null>(null);
     }
     onSelectionChange?.(out);
   }, [selection, onSelectionChange]);
+  /* ==== [BLOCK: selection state + lift] END ==== */
 
-  /* ==== [BLOCK: copy – helpers + effect] BEGIN ==== */
-const getCellString = React.useCallback((r: number, c: number): string => {
-  const cell = getCellContent([c, r]);
-  // Bruk displayData der det finnes, ellers data
-  // Number/Text/Markdown dekkes – konverter til streng
-  const anyCell: any = cell as any;
-  const disp = anyCell?.displayData;
-  const data = anyCell?.data;
-  if (disp !== undefined && disp !== null) return String(disp);
-  if (data !== undefined && data !== null) return String(data);
-  return "";
-}, [getCellContent]);
-
-const copySelectionToClipboard = React.useCallback(() => {
-  if (!selection.current) return false;
-  const { x, y, width, height } = selection.current.range;
-  const lines: string[] = [];
-  for (let rr = y; rr < y + height; rr++) {
-    const cols: string[] = [];
-    for (let cc = x; cc < x + width; cc++) {
-      // TSV escape: erstatte tab/newline med mellomrom
-      const raw = getCellString(rr, cc).replace(/\t/g, " ").replace(/\r?\n/g, " ");
-      cols.push(raw);
-    }
-    lines.push(cols.join("\t"));
-  }
-  const tsv = lines.join("\n");
-
-  // Sikker kopi (med fallback)
-  const doCopy = async () => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(tsv);
-      } else {
-        throw new Error("no clipboard api");
-      }
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = tsv;
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand("copy"); } catch {}
-      document.body.removeChild(ta);
-    }
-  };
-  void doCopy();
-  return true;
-}, [selection, getCellString]);
-
-// Lytt på Cmd/Ctrl+C når fokus er i grid-containeren
-useEffect(() => {
-  const onKeyDown = (e: KeyboardEvent) => {
-    const within =
-      containerRef.current &&
-      (containerRef.current === document.activeElement ||
-        containerRef.current.contains(document.activeElement));
-    if (!within) return;
-
-    const isMac = navigator.platform.toLowerCase().includes("mac");
-    const mod = isMac ? e.metaKey : e.ctrlKey;
-
-    if (mod && e.key.toLowerCase() === "c") {
-      const handled = copySelectionToClipboard();
-      if (handled) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    }
-  };
-  window.addEventListener("keydown", onKeyDown, { capture: true });
-  return () => window.removeEventListener("keydown", onKeyDown, { capture: true } as any);
-}, [copySelectionToClipboard]);
-/* ==== [BLOCK: copy – helpers + effect] END ==== */
-
-  // Klipp/lim – vi map’er celler manuelt
+  /* ==== [BLOCK: paste handler] BEGIN ==== */
   const onPaste = React.useCallback(
     (target: Item, data: readonly (readonly (string | number)[])[]) => {
       const [cStart, rStart] = target;
@@ -260,8 +184,91 @@ useEffect(() => {
     },
     [rows.length, setCell]
   );
+  /* ==== [BLOCK: paste handler] END ==== */
 
-  // Tema/høyder
+  /* ==== [BLOCK: copy helpers] BEGIN ==== */
+  const getCellString = React.useCallback(
+    (r: number, c: number): string => {
+      const cell = getCellContent([c, r]);
+      const anyCell: any = cell as any;
+      const disp = anyCell?.displayData;
+      const data = anyCell?.data;
+      if (disp !== undefined && disp !== null) return String(disp);
+      if (data !== undefined && data !== null) return String(data);
+      return "";
+    },
+    [getCellContent]
+  );
+
+  const copySelectionToClipboard = React.useCallback((): boolean => {
+    if (!selection.current) return false;
+    const { x, y, width, height } = selection.current.range;
+    const lines: string[] = [];
+    for (let rr = y; rr < y + height; rr++) {
+      const cols: string[] = [];
+      for (let cc = x; cc < x + width; cc++) {
+        const raw = getCellString(rr, cc).replace(/\t/g, " ").replace(/\r?\n/g, " ");
+        cols.push(raw);
+      }
+      lines.push(cols.join("\t"));
+    }
+    const tsv = lines.join("\n");
+
+    const doCopy = async () => {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(tsv);
+        } else {
+          throw new Error("no clipboard api");
+        }
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = tsv;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch {}
+        document.body.removeChild(ta);
+      }
+    };
+    void doCopy();
+    return true;
+  }, [selection, getCellString]);
+
+  // Lytt på Cmd/Ctrl+C når fokus er i grid-containeren
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const within =
+        containerRef.current &&
+        (containerRef.current === document.activeElement ||
+          containerRef.current.contains(document.activeElement));
+      if (!within) return;
+
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+
+      if (mod && e.key.toLowerCase() === "c") {
+        const handled = copySelectionToClipboard();
+        if (handled) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", onKeyDown as any, { capture: true } as any);
+  }, [copySelectionToClipboard]);
+  /* ==== [BLOCK: copy helpers] END ==== */
+
+  /* ==== [BLOCK: imperative handle] BEGIN ==== */
+  useImperativeHandle(ref, () => ({
+    scrollToX: (x: number) => editorRef.current?.scrollTo(x, 0),
+    copySelectionToClipboard: () => copySelectionToClipboard() ?? false,
+  }));
+  /* ==== [BLOCK: imperative handle] END ==== */
+
+  /* ==== [BLOCK: theme + sizing] BEGIN ==== */
   const theme = useMemo(
     () => ({
       headerHeight: HEADER_H,
@@ -270,36 +277,37 @@ useEffect(() => {
     []
   );
 
-  // Hindre intern V-scroll ved å gi full høyde
+  // Hindre intern vertikal scroll ved å gi editoren “full” høyde
   const editorHeight = Math.max(HEADER_H + rows.length * ROW_H, height);
+  /* ==== [BLOCK: theme + sizing] END ==== */
 
+  /* ==== [BLOCK: render] BEGIN ==== */
   return (
     <div
-  ref={containerRef}
-  className="hide-native-scrollbars"
-  style={{ overflow: "hidden" }}
->
-      {/* ==== [BLOCK: DataEditor element – FIX] BEGIN ==== */}
-<DataEditor
-  ref={editorRef}
-  width="100%"
-  height={editorHeight}
-  rows={rows.length}
-  columns={columns}
-  getCellContent={getCellContent}
-  onCellEdited={onCellEdited}
-  onPaste={onPaste}
-  gridSelection={selection}
-  onGridSelectionChange={setSelection}
-  rowMarkers="number"
-  smoothScrollX
-  smoothScrollY
-  theme={theme as any}
-  onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
-/>
-      {/* ==== [BLOCK: DataEditor element – FIX] END ==== */}
+      ref={containerRef}
+      className="hide-native-scrollbars"
+      style={{ overflow: "hidden" }}
+    >
+      <DataEditor
+        ref={editorRef}
+        width="100%"
+        height={editorHeight}
+        rows={rows.length}
+        columns={columns}
+        getCellContent={getCellContent}
+        onCellEdited={onCellEdited}
+        onPaste={onPaste}
+        gridSelection={selection}
+        onGridSelectionChange={setSelection}
+        rowMarkers="number"
+        smoothScrollX
+        smoothScrollY
+        theme={theme as any}
+        onVisibleRegionChanged={(r) => onScrollXChange?.(r.x)}
+      />
     </div>
   );
+  /* ==== [BLOCK: render] END ==== */
 });
 /* ==== [BLOCK: component] END ==== */
 
