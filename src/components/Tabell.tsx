@@ -1,5 +1,5 @@
 // Tabell.tsx – Glide Data Grid uten intern V-scroll, ekstern H-slider, klipp/lim, kopier ut, tøm markerte
-// v0.2: Beregningsregler for Start/Slutt/Varighet (kalender-agnostisk – rene dager)
+// v0.2.1: Beregningsregler + rekalkulerings-PROMPT ved tvetydige endringer
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -54,28 +54,21 @@ type Props = {
 };
 /* ==== [BLOCK: types & handles] END ==== */
 
-/* ==== [BLOCK: date helpers (v0.2)] BEGIN ==== */
-function parseDate(s: string | number | null | undefined): Date | null {
-  if (!s) return null;
-  const str = String(s).trim();
-  // Aksepter YYYY-MM-DD (primært); fallback til Date(...) hvis gyldig
+/* ==== [BLOCK: date helpers] BEGIN ==== */
+function toDate(s: any): Date | null {
+  const str = String(s ?? "").trim();
+  if (!str) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
   if (m) {
     const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
-    const dt = new Date(Date.UTC(y, mo, d));
-    // normaliser til lokal 00:00 for enkelhet (dag-basert, ikke tidssone-kritisk nå)
+    const dt = new Date(y, mo, d);
     dt.setHours(0, 0, 0, 0);
     return isNaN(dt.getTime()) ? null : dt;
   }
   const dt = new Date(str);
-  return isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-}
-function formatDate(d: Date | null): string {
-  if (!d) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  if (isNaN(dt.getTime())) return null;
+  dt.setHours(0, 0, 0, 0);
+  return dt;
 }
 function addDays(d: Date, n: number): Date {
   const x = new Date(d);
@@ -83,13 +76,38 @@ function addDays(d: Date, n: number): Date {
   x.setHours(0, 0, 0, 0);
   return x;
 }
-function diffDaysInclusive(a: Date, b: Date): number {
-  // inklusiv varighet: 2025-01-01 til 2025-01-01 = 1 dag
-  const ms = b.getTime() - a.getTime();
-  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
-  return days + 1;
+function subDays(d: Date, n: number): Date {
+  return addDays(d, -n);
 }
-/* ==== [BLOCK: date helpers (v0.2)] END ==== */
+function fmt(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
+}
+function toNum(n: any): number | null {
+  const v = Number(String(n ?? "").replace(",", "."));
+  return Number.isFinite(v) ? v : null;
+}
+function diffDaysInclusive(a: Date, b: Date): number {
+  const ms = b.getTime() - a.getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24)) + 1;
+}
+/* ==== [BLOCK: date helpers] END ==== */
+
+/* ==== [BLOCK: recalc prompt types] BEGIN ==== */
+type ChangeKey = "start" | "slutt" | "varighet";
+type PromptKind =
+  | "start-changed"   // har slutt+varighet → valg: hold varighet (flytt slutt) | hold slutt (reberegn varighet)
+  | "slutt-changed"   // har start+varighet → valg: hold varighet (flytt start)  | hold start (reberegn varighet)
+  | "varighet-changed"; // har start+slutt → valg: hold start (flytt slutt)       | hold slutt (flytt start)
+
+type RecalcPrompt = {
+  row: number;
+  kind: PromptKind;
+  nextRow: Rad; // snapshot etter primær-commit (inkl. nylig redigert verdi)
+};
+/* ==== [BLOCK: recalc prompt types] END ==== */
 
 /* ==== [BLOCK: component] BEGIN ==== */
 const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
@@ -110,6 +128,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   const editorRef = useRef<DataEditorRef | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   /* ==== [BLOCK: refs] END ==== */
+
+  /* ==== [BLOCK: recalc prompt state] BEGIN ==== */
+  const [prompt, setPrompt] = useState<RecalcPrompt | null>(null);
+  /* ==== [BLOCK: recalc prompt state] END ==== */
 
   /* ==== [BLOCK: columns] BEGIN ==== */
   const columns = useMemo<GridColumn[]>(
@@ -165,143 +187,78 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   );
   /* ==== [BLOCK: getCellContent] END ==== */
 
- /* ==== [BLOCK: onCellEdited (v0.2 rules + Slutt+Varighet→Start)] BEGIN ==== */
-const onCellEdited = React.useCallback(
-  (item: Item, newValue: GridCell) => {
-    const [col, row] = item;
-    const key = TABLE_COLS[col].key as keyof Rad;
-    if (!rows[row]) return;
+  /* ==== [BLOCK: onCellEdited (v0.2.1 med prompt)] BEGIN ==== */
+  const onCellEdited = React.useCallback(
+    (item: Item, newValue: GridCell) => {
+      const [col, row] = item;
+      const key = TABLE_COLS[col].key as keyof Rad;
+      if (!rows[row]) return;
 
-    // ---- Normaliser innkommende verdi
-    let editedVal: any = "";
-    if (newValue.kind === GridCellKind.Number) {
-      editedVal =
-        typeof newValue.data === "number" && !Number.isNaN(newValue.data)
-          ? newValue.data
-          : "";
-    } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
-      editedVal = (newValue.data ?? "") as any;
-    } else {
-      editedVal = (newValue as any).data ?? (newValue as any).displayData ?? "";
-    }
-
-    // ---- Lokal snapshot av raden *etter* redigeringen
-    const curr = rows[row];
-    const nextRow: Rad = { ...curr, [key]: editedVal } as Rad;
-
-    // ---- Hjelpere (kalender-agnostisk)
-    const toDate = (s: any): Date | null => {
-      const str = String(s ?? "").trim();
-      if (!str) return null;
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
-      if (m) {
-        const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
-        const dt = new Date(y, mo, d);
-        dt.setHours(0, 0, 0, 0);
-        return isNaN(dt.getTime()) ? null : dt;
+      // ---- Normaliser innkommende verdi
+      let editedVal: any = "";
+      if (newValue.kind === GridCellKind.Number) {
+        editedVal =
+          typeof newValue.data === "number" && !Number.isNaN(newValue.data)
+            ? newValue.data
+            : "";
+      } else if (newValue.kind === GridCellKind.Text || newValue.kind === GridCellKind.Markdown) {
+        editedVal = (newValue.data ?? "") as any;
+      } else {
+        editedVal = (newValue as any).data ?? (newValue as any).displayData ?? "";
       }
-      const dt = new Date(str);
-      if (isNaN(dt.getTime())) return null;
-      dt.setHours(0, 0, 0, 0);
-      return dt;
-    };
-    const addDays = (d: Date, n: number) => {
-      const x = new Date(d);
-      x.setDate(x.getDate() + n);
-      x.setHours(0, 0, 0, 0);
-      return x;
-    };
-    const subDays = (d: Date, n: number) => addDays(d, -n);
-    const fmt = (d: Date) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const da = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${da}`;
-    };
-    const toNum = (n: any): number | null => {
-      const v = Number(String(n ?? "").replace(",", "."));
-      return Number.isFinite(v) ? v : null;
-    };
-    const diffDaysInclusive = (a: Date, b: Date) => {
-      const ms = b.getTime() - a.getTime();
-      return Math.floor(ms / (1000 * 60 * 60 * 24)) + 1;
-    };
 
-    // ---- Beregn på snapshotet
-    let s = toDate(nextRow.start);
-    let e = toDate(nextRow.slutt);
-    let d = toNum(nextRow.varighet);
+      // ---- Lokal snapshot av raden *etter* redigeringen
+      const curr = rows[row];
+      const nextRow: Rad = { ...curr, [key]: editedVal } as Rad;
 
-    // Commit primærfeltet først (det brukeren redigerte)
-    setCell(row, key, editedVal as any);
+      // Commit primærfeltet først (det brukeren redigerte)
+      setCell(row, key, editedVal as any);
 
-    // --------- Hovedregler (inkl. ny: Slutt + Varighet → Start) ---------
+      // ---- Finn situasjon for prompt/auto
+      const s = toDate(nextRow.start);
+      const e = toDate(nextRow.slutt);
+      const d = toNum(nextRow.varighet);
 
-    // R1: Start + Varighet → Slutt
-    if (s && d && d > 0) {
-      const newEnd = addDays(s, d - 1);
-      const newEndStr = fmt(newEnd);
-      if (nextRow.slutt !== newEndStr) {
-        setCell(row, "slutt", newEndStr as any);
-        e = newEnd; // hold lokalt oppdatert for videre regler
+      // Tvetydige cases → prompt:
+      if (key === "start" && e && d && d > 0) {
+        setPrompt({ row, kind: "start-changed", nextRow });
+        return;
       }
-    }
-
-    // R2: Start + Slutt → Varighet
-    if (s && e && e.getTime() >= s.getTime()) {
-      const newDur = diffDaysInclusive(s, e);
-      if (toNum(nextRow.varighet) !== newDur) {
-        setCell(row, "varighet", newDur as any);
-        d = newDur;
+      if (key === "slutt" && s && d && d > 0) {
+        setPrompt({ row, kind: "slutt-changed", nextRow });
+        return;
       }
-    } else if (key === "slutt" && s && !e) {
-      // Slutt gjort tom → nullstill varighet
-      setCell(row, "varighet", "" as any);
-      d = null;
-    }
+      if (key === "varighet" && s && e) {
+        setPrompt({ row, kind: "varighet-changed", nextRow });
+        return;
+      }
 
-    // R3: Varighet alene + Start → Slutt
-    if (key === "varighet" && s) {
-      const dur = toNum(editedVal);
-      if (dur && dur > 0) {
-        const newEnd = addDays(s, dur - 1);
-        const newEndStr = fmt(newEnd);
-        if (nextRow.slutt !== newEndStr) {
-          setCell(row, "slutt", newEndStr as any);
-          e = newEnd;
+      // Ikke-tvetydige cases → automatikk:
+      // R1: Start + Varighet → Slutt
+      if (key === "start" || key === "varighet") {
+        const s1 = toDate(nextRow.start);
+        const d1 = toNum(nextRow.varighet);
+        if (s1 && d1 && d1 > 0) {
+          const newEnd = addDays(s1, d1 - 1);
+          setCell(row, "slutt", fmt(newEnd) as any);
         }
       }
-    }
 
-    // R4 (NY): Slutt + Varighet → Start
-    //  - Trigger når brukeren endrer "slutt" ELLER "varighet" og start mangler/skal utledes
-    if ((!s || key === "slutt" || key === "varighet") && e && d && d > 0) {
-      // Hvis Start mangler, eller vi eksplisitt redigerte slutt/varighet, regn Start
-      // inklusiv varighet => start = slutt - (d-1)
-      const newStart = subDays(e, d - 1);
-      const newStartStr = fmt(newStart);
-      if (!s || nextRow.start !== newStartStr) {
-        setCell(row, "start", newStartStr as any);
-        s = newStart;
+      // R2: Start + Slutt → Varighet
+      if (key === "start" || key === "slutt") {
+        const s2 = toDate(nextRow.start);
+        const e2 = toDate(nextRow.slutt);
+        if (s2 && e2 && e2.getTime() >= s2.getTime()) {
+          setCell(row, "varighet", diffDaysInclusive(s2, e2) as any);
+        } else if (key === "slutt" && s2 && !e2) {
+          // Slutt tømt → nullstill varighet
+          setCell(row, "varighet", "" as any);
+        }
       }
-      // Etter vi fikk en start, sørg for at varighet er konsistent (sanity)
-      if (s && e && e.getTime() >= s.getTime()) {
-        const newDur = diffDaysInclusive(s, e);
-        if (newDur !== d) setCell(row, "varighet", newDur as any);
-      }
-    }
-
-    // Robusthet: ugyldige kombinasjoner
-    if (s && e && e.getTime() < s.getTime()) {
-      // Behold input, men ikke vis en feilaktig varighet
-      setCell(row, "varighet", "" as any);
-    }
-  },
-  [rows, setCell]
-);
-/* ==== [BLOCK: onCellEdited (v0.2 rules + Slutt+Varighet→Start)] END ==== */
-
-
+    },
+    [rows, setCell]
+  );
+  /* ==== [BLOCK: onCellEdited (v0.2.1 med prompt)] END ==== */
 
   /* ==== [BLOCK: selection state + lift] BEGIN ==== */
   const [selection, setSelection] = useState<GridSelection>({
@@ -492,6 +449,52 @@ const onCellEdited = React.useCallback(
       {/* Masker ev. intern vertikal scrollbar helt til høyre */}
       <div className="tabell-vmask" aria-hidden />
       <div className="tabell-hmask" aria-hidden />
+
+      {/* Recalc prompt */}
+      {prompt && (
+        <RecalcDialog
+          prompt={prompt}
+          onApply={(action) => {
+            const { row, kind, nextRow } = prompt;
+            const s = toDate(nextRow.start);
+            const e = toDate(nextRow.slutt);
+            const d = toNum(nextRow.varighet);
+
+            if (kind === "start-changed" && s && e && d) {
+              if (action === "keep-duration") {
+                // Flytt SLUTT for å bevare VARIGHET
+                setCell(row, "slutt", fmt(addDays(s, d - 1)) as any);
+              } else if (action === "keep-end") {
+                // Reberegn VARIGHET basert på SLUTT
+                setCell(row, "varighet", diffDaysInclusive(s, e) as any);
+              }
+            }
+
+            if (kind === "slutt-changed" && s && e && d) {
+              if (action === "keep-duration") {
+                // Flytt START for å bevare VARIGHET
+                setCell(row, "start", fmt(subDays(e, d - 1)) as any);
+              } else if (action === "keep-start") {
+                // Reberegn VARIGHET basert på START
+                setCell(row, "varighet", diffDaysInclusive(s, e) as any);
+              }
+            }
+
+            if (kind === "varighet-changed" && s && e && d) {
+              if (action === "keep-start") {
+                // Flytt SLUTT fra START
+                setCell(row, "slutt", fmt(addDays(s, d - 1)) as any);
+              } else if (action === "keep-end") {
+                // Flytt START fra SLUTT
+                setCell(row, "start", fmt(subDays(e, d - 1)) as any);
+              }
+            }
+
+            setPrompt(null);
+          }}
+          onCancel={() => setPrompt(null)}
+        />
+      )}
     </div>
   );
   /* ==== [BLOCK: Tabell render] END ==== */
@@ -499,3 +502,96 @@ const onCellEdited = React.useCallback(
 /* ==== [BLOCK: component] END ==== */
 
 export default Tabell;
+
+/* ==== [BLOCK: RecalcDialog component] BEGIN ==== */
+function RecalcDialog({
+  prompt,
+  onApply,
+  onCancel,
+}: {
+  prompt: RecalcPrompt;
+  onApply: (action:
+    | "keep-duration" // flytt motsatt dato
+    | "keep-end"      // hold slutt, reberegn varighet ELLER flytt start (avhengig case)
+    | "keep-start"    // hold start, reberegn varighet ELLER flytt slutt (avhengig case)
+  ) => void;
+  onCancel: () => void;
+}) {
+  const { kind } = prompt;
+
+  let title = "";
+  let options: { key: "keep-duration" | "keep-end" | "keep-start"; label: string; desc?: string }[] = [];
+
+  if (kind === "start-changed") {
+    title = "Start endret – hva vil du bevare?";
+    options = [
+      { key: "keep-duration", label: "Bevar varighet", desc: "Flytt Slutt slik at varigheten beholdes." },
+      { key: "keep-end", label: "Bevar slutt", desc: "Reberegn varighet ut fra ny Start → Slutt." },
+    ];
+  } else if (kind === "slutt-changed") {
+    title = "Slutt endret – hva vil du bevare?";
+    options = [
+      { key: "keep-duration", label: "Bevar varighet", desc: "Flytt Start slik at varigheten beholdes." },
+      { key: "keep-start", label: "Bevar start", desc: "Reberegn varighet ut fra Start → ny Slutt." },
+    ];
+  } else {
+    title = "Varighet endret – hvilken dato vil du justere?";
+    options = [
+      { key: "keep-start", label: "Bevar start", desc: "Flytt Slutt basert på ny varighet." },
+      { key: "keep-end", label: "Bevar slutt", desc: "Flytt Start basert på ny varighet." },
+    ];
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Rekalkulering"
+      onClick={onCancel}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.25)",
+        display: "grid",
+        placeItems: "end center",
+        padding: 16,
+        zIndex: 1200,
+      }}
+    >
+      <div
+        className="panel"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 520,
+          maxWidth: "96vw",
+          borderRadius: 12,
+          border: "1px solid var(--line)",
+          background: "#fff",
+          boxShadow: "0 16px 36px rgba(0,0,0,.18)",
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ padding: "12px 12px 8px 12px", borderBottom: "1px solid var(--line)" }}>
+          <strong>{title}</strong>
+        </div>
+        <div style={{ padding: 12, display: "grid", gap: 8 }}>
+          {options.map((opt) => (
+            <button
+              key={opt.key}
+              className="btn"
+              style={{ textAlign: "left", display: "grid", gap: 4, padding: "10px 12px" }}
+              onClick={() => onApply(opt.key)}
+            >
+              <span style={{ fontWeight: 600 }}>{opt.label}</span>
+              {opt.desc ? <span style={{ fontSize: 12, color: "#6b7280" }}>{opt.desc}</span> : null}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: 12, borderTop: "1px solid var(--line)", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button className="btn" onClick={onCancel}>Avbryt</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+/* ==== [BLOCK: RecalcDialog component] END ==== */
