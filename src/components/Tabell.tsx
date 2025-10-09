@@ -317,7 +317,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           position: "absolute",
           left: 0,
           right: 0,
-          top: HEADER_H,
+          top: HEADER_H - 1,
           borderTop: "2px solid var(--line-strong)",
           pointerEvents: "none",
         }}
