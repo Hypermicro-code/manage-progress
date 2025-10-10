@@ -1,5 +1,6 @@
 // /src/components/Tabell.tsx
-// RevoGrid – v0.5.5 (stabil): editor-observer commit, regler, kalender, #-kolonne.
+// RevoGrid – v0.6.0: robust editor-capture (input/textarea/contenteditable),
+// commit på blur/enter/global click-away, normalisering/rekalk, kalender, #-kolonne.
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -74,7 +75,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   const focusRef = useRef<{ rowIndex: number; colKey: KolonneKey } | null>(null);
   const lastClickPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const editorInfoRef = useRef<{ row: number; col: GridColKey } | null>(null);
-  const editorInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const editorElRef = useRef<HTMLElement | null>(null); // <input>/<textarea>/<div contenteditable>
   const editorObsRef = useRef<MutationObserver | null>(null);
   /* ==== [BLOCK: refs] END ==== */
 
@@ -127,10 +128,8 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     const apply = () => {
       el.columns = columns;
       el.source = viewData;
-
       const totalW = columns.reduce((acc: number, c: any) => acc + (c.size ?? 120), 0);
       onTotalWidthChange?.(totalW);
-
       if (typeof el.refresh === "function") el.refresh("all");
     };
 
@@ -150,7 +149,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         const { x = 0, y = 0, width = 1, height = 1 } = r || {};
         for (let rr = y; rr < y + height; rr++) {
           for (let cc = x; cc < x + width; cc++) {
-            const ourIndex = cc - 1; // # kolonne ligger først
+            const ourIndex = cc - 1; // # først
             const key = TABLE_COLS[ourIndex]?.key as KolonneKey;
             if (ourIndex >= 0 && key) cells.push({ r: rr, c: key });
           }
@@ -239,7 +238,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   };
   /* ==== [BLOCK: commit helper] END ==== */
 
-  /* ==== [BLOCK: editor observer (commit på blur/enter/klikk-utenfor)] BEGIN ==== */
+  /* ==== [BLOCK: editor observer (input/textarea/contenteditable)] BEGIN ==== */
   useEffect(() => {
     const gridEl = gridRef.current as any;
     if (!gridEl) return;
@@ -247,41 +246,47 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     const shadow = gridEl.shadowRoot as ShadowRoot | null;
     if (!shadow) return;
 
+    const readEditorValue = (el: HTMLElement): string => {
+      if ("value" in el && typeof (el as any).value === "string") {
+        return (el as any).value as string;
+      }
+      // contenteditable → bruk innerText
+      return (el.innerText ?? "").trim();
+    };
+
     editorObsRef.current?.disconnect();
     editorObsRef.current = new MutationObserver(() => {
       const editorHost = shadow.querySelector(".editCell") as HTMLElement | null;
-      const input =
-        (editorHost?.querySelector("input, textarea") as
-          | HTMLInputElement
-          | HTMLTextAreaElement
-          | null) ?? null;
 
-      editorInputRef.current = input || null;
+      const inputLike =
+        (editorHost?.querySelector(
+          "input, textarea, [contenteditable='true']"
+        ) as HTMLElement | null) ?? null;
 
-      if (input) {
+      editorElRef.current = inputLike || null;
+
+      if (inputLike) {
         const focus = focusRef.current;
-        if (focus) {
-          editorInfoRef.current = { row: focus.rowIndex, col: focus.colKey as GridColKey };
-        }
+        if (focus) editorInfoRef.current = { row: focus.rowIndex, col: focus.colKey as GridColKey };
 
         const onKeyDown: EventListener = (evt: Event) => {
           const e = evt as KeyboardEvent;
           if (e.key === "Enter") {
             const info = editorInfoRef.current;
-            if (info) commitEdit(info.row, info.col, (input as any).value);
+            if (info) commitEdit(info.row, info.col, readEditorValue(inputLike));
           }
         };
         const onBlur: EventListener = () => {
           const info = editorInfoRef.current;
-          if (info) commitEdit(info.row, info.col, (input as any).value);
+          if (info) commitEdit(info.row, info.col, readEditorValue(inputLike));
         };
 
-        input.addEventListener("keydown", onKeyDown);
-        input.addEventListener("blur", onBlur);
+        inputLike.addEventListener("keydown", onKeyDown);
+        inputLike.addEventListener("blur", onBlur);
 
         const cleanup = () => {
-          input.removeEventListener("keydown", onKeyDown);
-          input.removeEventListener("blur", onBlur);
+          inputLike.removeEventListener("keydown", onKeyDown);
+          inputLike.removeEventListener("blur", onBlur);
         };
 
         const cellObs = new MutationObserver(() => {
@@ -289,7 +294,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           if (!stillThere) {
             cleanup();
             cellObs.disconnect();
-            editorInputRef.current = null;
+            editorElRef.current = null;
             editorInfoRef.current = null;
           }
         });
@@ -302,40 +307,39 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     return () => {
       editorObsRef.current?.disconnect();
       editorObsRef.current = null;
-      editorInputRef.current = null;
+      editorElRef.current = null;
       editorInfoRef.current = null;
     };
   }, [rows]);
-  /* ==== [BLOCK: editor observer (commit på blur/enter/klikk-utenfor)] END ==== */
+  /* ==== [BLOCK: editor observer (input/textarea/contenteditable)] END ==== */
 
   /* ==== [BLOCK: global click-away commit] BEGIN ==== */
-useEffect(() => {
-  // Hvis det finnes en aktiv editor -> commit verdien når du klikker et annet sted
-  const onPointerDown: EventListener = (ev: Event) => {
-    const input = editorInputRef.current;
-    if (!input) return; // ingen editor å committe
+  useEffect(() => {
+    const onPointerDown: EventListener = (ev: Event) => {
+      const inputLike = editorElRef.current;
+      if (!inputLike) return;
 
-    const gridEl = gridRef.current as any;
-    const shadow = gridEl?.shadowRoot as ShadowRoot | null;
-    const editCell = shadow?.querySelector(".editCell") as HTMLElement | null;
+      const gridEl = gridRef.current as any;
+      const shadow = gridEl?.shadowRoot as ShadowRoot | null;
+      const editCell = shadow?.querySelector(".editCell") as HTMLElement | null;
 
-    // Klikk INNE i editor-cella? Da lar vi RevoGrid håndtere det.
-    const path = (ev as any).composedPath?.() as EventTarget[] | undefined;
-    if (path && (path.includes(input) || (editCell && path.includes(editCell)))) return;
+      const path = (ev as any).composedPath?.() as EventTarget[] | undefined;
+      if (path && (path.includes(inputLike) || (editCell && path.includes(editCell)))) return;
 
-    // Klikk utenfor -> commit med vår egen commitEdit
-    const info = editorInfoRef.current;
-    if (info) {
-      commitEdit(info.row, info.col, (input as any).value);
-      // NB: Vi lar eventet fortsette, så RevoGrid får lov til å lukke editoren.
-    }
-  };
+      const info = editorInfoRef.current;
+      if (info) {
+        const val =
+          "value" in (inputLike as any) && typeof (inputLike as any).value === "string"
+            ? (inputLike as any).value
+            : (inputLike.innerText ?? "").trim();
+        commitEdit(info.row, info.col, val);
+      }
+    };
 
-  // capture=true for å komme før RevoGrid sin blur/cancel
-  window.addEventListener("pointerdown", onPointerDown, { capture: true } as any);
-  return () => window.removeEventListener("pointerdown", onPointerDown, { capture: true } as any);
-}, [rows]);
-/* ==== [BLOCK: global click-away commit] END ==== */
+    window.addEventListener("pointerdown", onPointerDown, { capture: true } as any);
+    return () => window.removeEventListener("pointerdown", onPointerDown, { capture: true } as any);
+  }, [rows]);
+  /* ==== [BLOCK: global click-away commit] END ==== */
 
   /* ==== [BLOCK: keep rows in sync] BEGIN ==== */
   useEffect(() => {
