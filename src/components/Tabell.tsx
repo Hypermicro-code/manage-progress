@@ -33,6 +33,9 @@ declare global {
 /* ==== [BLOCK: typer] BEGIN ==== */
 export type KolonneKey = (typeof TABLE_COLS)[number]["key"];
 
+/** Intern grid-nøkkel: våre kolonner + "#"-kolonnen (`_row`) */
+type GridColKey = KolonneKey | "_row";
+
 export type TabellHandle = {
   scrollToX: (x: number) => void;
   copySelectionToClipboard: () => boolean;
@@ -68,11 +71,15 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   ref
 ) {
   /* ==== [BLOCK: refs] BEGIN ==== */
-  const gridRef = useRef<any | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const focusRef = useRef<{ rowIndex: number; colKey: KolonneKey } | null>(null);
-  const lastClickPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  /* ==== [BLOCK: refs] END ==== */
+const gridRef = useRef<any | null>(null);
+const containerRef = useRef<HTMLDivElement | null>(null);
+const focusRef = useRef<{ rowIndex: number; colKey: KolonneKey } | null>(null);
+const lastClickPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+const editorInfoRef = useRef<{ row: number; col: GridColKey } | null>(null);
+const editorInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+const editorObsRef = useRef<MutationObserver | null>(null);
+/* ==== [BLOCK: refs] END ==== */
+
 
   /* ==== [BLOCK: prompt state] BEGIN ==== */
   const [prompt, setPrompt] = useState<(RecalcPromptMeta & { row: number }) | null>(null);
@@ -171,14 +178,14 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     };
 
     const handleAfterEdit = (e: CustomEvent) => {
-      const det: any = e.detail ?? {};
-      const rowIndex: number = det?.row;
-      const colKey: string = det?.col;
-      const rawVal: any = det?.value;
-      if (rowIndex == null || colKey == null || !rows[rowIndex]) return;
-      if (colKey === "_row") return;
-      commitEdit(rowIndex, colKey as KolonneKey, rawVal);
-    };
+  const det: any = e.detail ?? {};
+  const rowIndex: number = det?.row;
+  const colKey: GridColKey = det?.col as GridColKey;
+  const rawVal: any = det?.value;
+  if (rowIndex == null || colKey == null || !rows[rowIndex]) return;
+  if (colKey === "_row") return; // ignorer radnr-kolonnen
+  commitEdit(rowIndex, colKey, rawVal);
+};
 
     el.addEventListener("selectionChanged", onSelectionChanged as any);
     el.addEventListener("cellFocus", onCellFocus as any);
@@ -195,44 +202,48 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: imperative init + event binding] END ==== */
 
   /* ==== [BLOCK: commit helper] BEGIN ==== */
-  const commitEdit = (rowIndex: number, colKey: KolonneKey, rawVal: any) => {
-    // Normaliser verdi
-    let committed: any = rawVal;
-    if (colKey === "start" || colKey === "slutt") {
-      const { normalized } = canonicalizeDateInput(rawVal);
-      committed = normalized || "";
-    } else if (colKey === "varighet" || colKey === "ap" || colKey === "pp") {
-      const n = Number(String(rawVal ?? "").replace(",", "."));
-      committed = Number.isFinite(n) ? n : "";
-    } else {
-      committed = String(rawVal ?? "");
-    }
+const commitEdit = (rowIndex: number, colKey: GridColKey, rawVal: any) => {
+  if (colKey === "_row") return; // aldri commit på nr-kolonnen
 
-    // Lagre celle
-    setCell(rowIndex, colKey as keyof Rad, committed as any);
+  // Narrow til våre faktiske datokolonner
+  const dataKey = colKey as KolonneKey;
 
-    // Regler → autoPatch/prompt
-    const curr = rows[rowIndex];
-    const nextRow: Rad = { ...curr, [colKey]: committed } as Rad;
-    const plan = planAfterEdit(nextRow, colKey as any);
+  let committed: any = rawVal;
 
-    if (plan.prompt) {
-      setPrompt({ ...plan.prompt, row: rowIndex });
-      return;
-    }
-    if (plan.autoPatch) {
-      for (const [k, v] of Object.entries(plan.autoPatch)) {
-        setCell(rowIndex, k as keyof Rad, v as any);
-      }
-    }
+  if (dataKey === "start" || dataKey === "slutt") {
+    const { normalized } = canonicalizeDateInput(rawVal);
+    committed = normalized || "";
+  } else if (dataKey === "varighet" || dataKey === "ap" || dataKey === "pp") {
+    const n = Number(String(rawVal ?? "").replace(",", "."));
+    committed = Number.isFinite(n) ? n : "";
+  } else {
+    committed = String(rawVal ?? "");
+  }
 
-    const s2 = toDate((plan.autoPatch?.start as any) ?? nextRow.start);
-    const e2 = toDate((plan.autoPatch?.slutt as any) ?? nextRow.slutt);
-    if (s2 && e2 && e2 < s2) {
-      setCell(rowIndex, "varighet", "" as any);
+  setCell(rowIndex, dataKey as keyof Rad, committed as any);
+
+  const curr = rows[rowIndex];
+  const nextRow: Rad = { ...curr, [dataKey]: committed } as Rad;
+  const plan = planAfterEdit(nextRow, dataKey as any);
+
+  if (plan.prompt) {
+    setPrompt({ ...plan.prompt, row: rowIndex });
+    return;
+  }
+  if (plan.autoPatch) {
+    for (const [k, v] of Object.entries(plan.autoPatch)) {
+      setCell(rowIndex, k as keyof Rad, v as any);
     }
-  };
-  /* ==== [BLOCK: commit helper] END ==== */
+  }
+
+  const s2 = toDate((plan.autoPatch?.start as any) ?? nextRow.start);
+  const e2 = toDate((plan.autoPatch?.slutt as any) ?? nextRow.slutt);
+  if (s2 && e2 && e2 < s2) {
+    setCell(rowIndex, "varighet", "" as any);
+  }
+};
+/* ==== [BLOCK: commit helper] END ==== */
+
 
   /* ==== [BLOCK: manual commit-on-click-away] BEGIN ==== */
   useEffect(() => {
@@ -261,8 +272,11 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       if (path.includes(editor)) return;
 
       // Hvis vi har fokusert celle, commit før editor lukkes
-      const focus = focusRef.current;
-      if (!focus) return;
+      if (input) {
+  const focus = focusRef.current;
+  if (focus) {
+    editorInfoRef.current = { row: focus.rowIndex, col: focus.colKey as GridColKey };
+  }
 
       const { rowIndex, colKey } = focus;
       if (!rows[rowIndex]) return;
