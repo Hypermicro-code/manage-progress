@@ -1,10 +1,6 @@
 // Tabell.tsx – RevoGrid-variant
-// v0.3.0: Bytter ut Glide med RevoGrid. Beholder:
-//  • fleksibel dato-parsing og normalisering (start/slutt → YYYY-MM-DD)
-//  • regler via core/recalc + prompt ved tvetydighet
-//  • kalender ved dobbeltklikk/Alt+↓ som velger dato umiddelbart
-//  • copy/paste via RevoGrid sitt innebygde clipboard
-//  • blokkinndeling som tidligere
+// v0.3.1: React 18 + web components fix → sett columns/source IMPERATIVT via ref
+//         Beholder fleksibel dato-parsing, regler/prompt, kalender på dblklikk/Alt+↓.
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -15,18 +11,11 @@ import React, {
   useRef,
   useState,
 } from "react";
-
-// RevoGrid web component
 import "@revolist/revogrid";
-
 import type { Rad } from "../core/types";
 import { HEADER_H, ROW_H, TABLE_COLS } from "../core/layout";
 import { toDate, canonicalizeDateInput } from "../core/date";
-import {
-  planAfterEdit,
-  resolvePrompt,
-  type RecalcPromptMeta,
-} from "../core/recalc";
+import { planAfterEdit, resolvePrompt, type RecalcPromptMeta } from "../core/recalc";
 /* ==== [BLOCK: imports] END ==== */
 
 /* ==== [BLOCK: types & handles] BEGIN ==== */
@@ -40,25 +29,17 @@ export type TabellHandle = {
 type Props = {
   rows: Rad[];
   setCell: (rowIndex: number, key: keyof Rad, value: Rad[keyof Rad]) => void;
-
-  /** total content height (for konsistens mot layout; RevoGrid styrer scroll selv) */
   height: number;
-
-  /** horisontal scrollposisjon (best effort – RevoGrid håndterer sin egen) */
   scrollX: number;
   onScrollXChange: (x: number) => void;
   onTotalWidthChange?: (w: number) => void;
-
-  /** Løft opp valgt område (for “Tøm markerte”) – gir celler i gjeldende utvalg */
   onSelectionChange?: (cells: { r: number; c: KolonneKey }[]) => void;
-
   onViewportWidthChange?: (w: number) => void;
   onTopRowChange?: (top: number) => void;
 };
 /* ==== [BLOCK: types & handles] END ==== */
 
-/* ==== [BLOCK: web component typings shim] BEGIN ==== */
-/** Enkel JSX-shim så TS aksepterer <revo-grid /> i JSX */
+/* ==== [BLOCK: JSX shim] BEGIN ==== */
 declare global {
   namespace JSX {
     interface IntrinsicElements {
@@ -66,7 +47,7 @@ declare global {
     }
   }
 }
-/* ==== [BLOCK: web component typings shim] END ==== */
+/* ==== [BLOCK: JSX shim] END ==== */
 
 /* ==== [BLOCK: component] BEGIN ==== */
 const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
@@ -86,13 +67,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: refs] BEGIN ==== */
   const gridRef = useRef<any | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Holder siste fokuserte celle (rad/kolonnenøkkel) for kalender mm.
-  const focusRef = useRef<{ rowIndex: number; colKey: KolonneKey } | null>(
-    null
-  );
-
-  // For posisjonering av kalender
+  const focusRef = useRef<{ rowIndex: number; colKey: KolonneKey } | null>(null);
   const lastClickPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   /* ==== [BLOCK: refs] END ==== */
 
@@ -112,37 +87,24 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: date popover state] END ==== */
 
   /* ==== [BLOCK: columns mapping] BEGIN ==== */
-  // RevoGrid columns: prop = data-key, name = header, size = width
   const columns = useMemo(
     () =>
-      TABLE_COLS.map((c) => {
-        const base: any = {
-          name: c.name,
-          prop: c.key,
-          size: c.width,
-        };
-        if (c.key === "varighet" || c.key === "ap" || c.key === "pp") {
-          base.type = "number";
-        } else {
-          base.type = "text";
-        }
-        return base;
-      }),
+      TABLE_COLS.map((c) => ({
+        name: c.name,
+        prop: c.key,
+        size: c.width,
+        type: c.key === "varighet" || c.key === "ap" || c.key === "pp" ? "number" : "text",
+      })),
     []
   );
   /* ==== [BLOCK: columns mapping] END ==== */
 
-  /* ==== [BLOCK: dataset] BEGIN ==== */
-  // RevoGrid forventer en array av records; vi gir rows direkte.
-  const data = rows;
-  /* ==== [BLOCK: dataset] END ==== */
-
-  /* ==== [BLOCK: event wiring] BEGIN ==== */
+  /* ==== [BLOCK: mount + bind events] BEGIN ==== */
   useEffect(() => {
     const el = gridRef.current as HTMLElement | null;
     if (!el) return;
 
-    // Høyde: vi låser container-høyde slik at RevoGrid heller scroller internt.
+    // 1) Sett container-høyde (RevoGrid scroller internt)
     if (containerRef.current) {
       containerRef.current.style.height = `${Math.max(
         HEADER_H + rows.length * ROW_H + 8,
@@ -150,29 +112,19 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       )}px`;
     }
 
-    // Lytt: fokusert celle (for Alt+↓ / dblclick kalender)
-    const onCellFocus = (e: CustomEvent) => {
-      // e.detail: { rowIndex, columnProp }
-      const det: any = e.detail ?? {};
-      const colKey = det?.columnProp as KolonneKey;
-      const rowIndex = Number(det?.rowIndex ?? -1);
-      if (!Number.isFinite(rowIndex) || rowIndex < 0) return;
-      if (!colKey) return;
-      focusRef.current = { rowIndex, colKey };
-    };
+    // 2) Imperativ init av props (kritisk i React 18)
+    (el as any).columns = columns;
+    (el as any).source = rows;
 
-    // Lytt: etter redigering
+    // 3) Eventer
     const onAfterEdit = (e: CustomEvent) => {
-      // e.detail: { row: rowIndex, col: columnProp, value, type, data }
       const det: any = e.detail ?? {};
       const rowIndex: number = det?.row;
       const colKey: KolonneKey = det?.col;
       const rawVal: any = det?.value;
-
       if (rowIndex == null || colKey == null) return;
       if (!rows[rowIndex]) return;
 
-      // 1) Normaliser verdi
       let committedVal: any = rawVal;
       if (colKey === "start" || colKey === "slutt") {
         const { normalized } = canonicalizeDateInput(rawVal);
@@ -184,10 +136,8 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         committedVal = String(rawVal ?? "");
       }
 
-      // 2) Primær commit
       setCell(rowIndex, colKey as keyof Rad, committedVal as any);
 
-      // 3) Plan/auto + prompt
       const curr = rows[rowIndex];
       const nextRow: Rad = { ...curr, [colKey]: committedVal } as Rad;
       const plan = planAfterEdit(nextRow, colKey as any);
@@ -202,7 +152,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         }
       }
 
-      // 4) Robusthet (ugyldig rekkefølge)
       const s2 = toDate((plan.autoPatch?.start as any) ?? nextRow.start);
       const e2 = toDate((plan.autoPatch?.slutt as any) ?? nextRow.slutt);
       if (s2 && e2 && e2 < s2) {
@@ -210,9 +159,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       }
     };
 
-    // Lytt: utvalg – løft til forelder (for "Tøm markerte")
     const onSelectionChanged = (e: CustomEvent) => {
-      // e.detail: { rgRange: { x, y, width, height }[] } eller lignende.
       const det: any = e.detail ?? {};
       const ranges: any[] = det?.rgRange || det?.range || [];
       const cells: { r: number; c: KolonneKey }[] = [];
@@ -226,31 +173,47 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         }
       }
       onSelectionChange?.(cells);
+
+      // lagre fokus (øverste-venstre i utvalget)
+      if (ranges[0]) {
+        const { x = 0, y = 0 } = ranges[0];
+        const key = (TABLE_COLS[x]?.key || "navn") as KolonneKey;
+        focusRef.current = { rowIndex: y, colKey: key };
+      }
     };
 
-    el.addEventListener("cellFocus", onCellFocus as any);
     el.addEventListener("afteredit", onAfterEdit as any);
     el.addEventListener("selectionChanged", onSelectionChanged as any);
 
     return () => {
-      el.removeEventListener("cellFocus", onCellFocus as any);
       el.removeEventListener("afteredit", onAfterEdit as any);
       el.removeEventListener("selectionChanged", onSelectionChanged as any);
     };
-  }, [rows, height, onSelectionChange, setCell]);
-  /* ==== [BLOCK: event wiring] END ==== */
+  }, [rows, height, columns, onSelectionChange, setCell]);
+  /* ==== [BLOCK: mount + bind events] END ==== */
 
-  /* ==== [BLOCK: external scroll sync – best effort] BEGIN ==== */
+  /* ==== [BLOCK: keep grid in sync with rows/columns] BEGIN ==== */
+  useEffect(() => {
+    const el = gridRef.current as any;
+    if (!el) return;
+    el.columns = columns;
+  }, [columns]);
+
+  useEffect(() => {
+    const el = gridRef.current as any;
+    if (!el) return;
+    el.source = rows;
+  }, [rows]);
+  /* ==== [BLOCK: keep grid in sync with rows/columns] END ==== */
+
+  /* ==== [BLOCK: external H-scroll sync (best effort)] BEGIN ==== */
   useEffect(() => {
     const el = gridRef.current as any;
     if (!el) return;
     try {
-      // RevoGrid har intern horisontal scroller. Vi forsøker å sette scrollLeft om tilgjengelig.
       const viewport = el.shadowRoot?.querySelector(".rgViewport") as HTMLElement | null;
       if (viewport) viewport.scrollLeft = scrollX;
-    } catch {
-      /* no-op */
-    }
+    } catch {}
   }, [scrollX]);
 
   useEffect(() => {
@@ -260,14 +223,12 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       try {
         const viewport = el.shadowRoot?.querySelector(".rgViewport") as HTMLElement | null;
         if (viewport) onScrollXChange?.(viewport.scrollLeft || 0);
-      } catch {
-        /* no-op */
-      }
+      } catch {}
     };
-    el.addEventListener("scroll", onScroll, { passive: true } as any);
+    el.addEventListener("scroll", onScroll as any, { passive: true } as any);
     return () => el.removeEventListener("scroll", onScroll as any);
   }, [onScrollXChange]);
-  /* ==== [BLOCK: external scroll sync – best effort] END ==== */
+  /* ==== [BLOCK: external H-scroll sync (best effort)] END ==== */
 
   /* ==== [BLOCK: dblclick + Alt+↓ – kalender] BEGIN ==== */
   useEffect(() => {
@@ -280,10 +241,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     window.addEventListener("mousedown", onMouseDown, { capture: true });
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!containerRef.current) return;
       const within =
-        containerRef.current === document.activeElement ||
-        containerRef.current.contains(document.activeElement);
+        containerRef.current &&
+        (containerRef.current === document.activeElement ||
+          containerRef.current.contains(document.activeElement));
       if (!within) return;
 
       if (e.altKey && e.key === "ArrowDown") {
@@ -322,12 +283,10 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         const el = gridRef.current as any;
         const viewport = el?.shadowRoot?.querySelector(".rgViewport") as HTMLElement | null;
         if (viewport) viewport.scrollLeft = x;
-      } catch { /* no-op */ }
+      } catch {}
     },
     copySelectionToClipboard: () => {
       try {
-        const el = gridRef.current as any;
-        // RevoGrid har clipboard integrert; vi kan trigge Ctrl+C via kommando:
         document.execCommand?.("copy");
         return true;
       } catch {
@@ -337,17 +296,15 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }));
   /* ==== [BLOCK: imperative handle] END ==== */
 
-  /* ==== [BLOCK: Tabell render] BEGIN ==== */
+  /* ==== [BLOCK: render] BEGIN ==== */
   return (
     <div
       ref={containerRef}
       className="hide-native-scrollbars tabell-grid"
       style={{ position: "relative", overflow: "hidden" }}
       onDoubleClick={(e) => {
-        // Åpne kalender KUN for start/slutt – basert på sist fokuserte celle (fra cellFocus)
         e.preventDefault();
         e.stopPropagation();
-
         const focus = focusRef.current;
         if (!focus) return;
         const { rowIndex, colKey } = focus;
@@ -372,15 +329,12 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       <revo-grid
         ref={gridRef}
         theme="material"
-        columns={columns}
-        source={data}
         resize={true}
         canFocus={true}
         range={true}
         clipboard={true}
         readonly={false}
         row-size={ROW_H}
-        // sync viewport info ut
         onViewportScroll={(e: CustomEvent) => {
           const st: any = e.detail || {};
           if (typeof st?.scrollLeft === "number") onScrollXChange?.(st.scrollLeft);
@@ -412,7 +366,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
           value={datePop.value}
           onChange={(iso) => {
             setCell(datePop.row, datePop.key, iso as any);
-            // trigge auto-regler etter setting
             const nextRow: Rad = { ...rows[datePop.row], [datePop.key]: iso } as Rad;
             const plan = planAfterEdit(nextRow, datePop.key);
             if (plan.autoPatch) {
@@ -427,7 +380,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       )}
     </div>
   );
-  /* ==== [BLOCK: Tabell render] END ==== */
+  /* ==== [BLOCK: render] END ==== */
 });
 /* ==== [BLOCK: component] END ==== */
 
