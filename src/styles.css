@@ -162,3 +162,26 @@ body{
 }
 /* ==== [BLOCK: splitter styles] END ==== */
 
+/* ==== [BLOCK: revogrid style fix] BEGIN ==== */
+revo-grid {
+  --revogrid-header-bg: #f9fafb;
+  --revogrid-border-color: #e5e7eb;
+  --revogrid-row-hover-bg: #f3f4f6;
+  --revogrid-font-color: #111827;
+  --revogrid-cell-padding: 4px 8px;
+  --revogrid-row-height: 28px;
+  background: white;
+  border-right: 1px solid #e5e7eb;
+  font-size: 13px;
+}
+
+/* RevoGrid cell outlines (for visibility) */
+revo-grid .rgCell {
+  border-bottom: 1px solid #e5e7eb !important;
+}
+
+/* Scrollbars + alignment */
+revo-grid .rgViewport {
+  background: white !important;
+}
+/* ==== [BLOCK: revogrid style fix] END ==== */
