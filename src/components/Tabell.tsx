@@ -1,5 +1,6 @@
-// Tabell.tsx – Minimal RevoGrid sanity test (med korrekt høyde)
-// Formål: få gridet synlig i venstrepanelet. Setter container-høyde = props.height.
+// Tabell.tsx – RevoGrid debug v0.3.2
+// Mål: få gridet synlig. Håndterer høyde, sen registrering av web component,
+// imperativ binding av columns/source og viser en debug-strip i UI.
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -8,6 +9,7 @@ import React, {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import "@revolist/revogrid";
 
@@ -51,7 +53,6 @@ type Props = {
 const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   {
     rows,
-    // setCell, // ikke brukt i minimaltest
     height,
     scrollX,
     onScrollXChange,
@@ -64,7 +65,8 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   const gridRef = useRef<any | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Map kolonner fra TABLE_COLS -> RevoGrid-format
+  const [dbg, setDbg] = useState<string>("init");
+
   const columns = useMemo(
     () =>
       TABLE_COLS.map((c) => ({
@@ -79,41 +81,82 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     []
   );
 
-  // Sett høyde på containeren slik at gridet faktisk synes
+  // Høyde på container – kritisk for at gridet skal synes
   useEffect(() => {
     if (containerRef.current) {
-      containerRef.current.style.height = `${Math.max(120, height)}px`;
+      containerRef.current.style.height = `${Math.max(200, height)}px`;
+      containerRef.current.style.minHeight = "200px";
     }
   }, [height]);
 
-  // Sett columns + source imperativt (React 18 + web components)
+  // Debug helper
+  function report(msg: string) {
+    setDbg((prev) => `${msg}`);
+    // console.log(`[RevoGrid] ${msg}`);
+  }
+
+  // Imperativ init: vent til web component er registrert
+  useEffect(() => {
+    let cancelled = false;
+
+    async function applyProps(el: any) {
+      if (!el || cancelled) return;
+      try {
+        // columns / source
+        el.columns = columns;
+        const data =
+          rows && rows.length
+            ? rows
+            : [{ navn: "Test-rad 1 (sanity)", start: "2025-10-01", varighet: 5 }];
+        el.source = data;
+
+        const totalW =
+          Array.isArray(columns) && columns.length
+            ? columns.reduce((acc: number, col: any) => acc + (col.size ?? 120), 0)
+            : 0;
+        onTotalWidthChange?.(totalW);
+
+        report(`ready • rows=${rows?.length ?? 0} • cols=${columns.length}`);
+      } catch (err: any) {
+        report(`error@applyProps: ${err?.message || err}`);
+      }
+    }
+
+    const el = gridRef.current as any;
+    if (!el) {
+      report("no element");
+      return;
+    }
+
+    // Vent til custom element er definert
+    const defined = !!customElements.get("revo-grid");
+    if (!defined && (customElements as any).whenDefined) {
+      report("waiting for customElements.whenDefined('revo-grid')");
+      (customElements as any)
+        .whenDefined("revo-grid")
+        .then(() => !cancelled && applyProps(el));
+    } else {
+      report("component defined, applying props");
+      // rAF + microtask for å sikre at shadowRoot er klar
+      requestAnimationFrame(() => Promise.resolve().then(() => applyProps(el)));
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [columns, rows, onTotalWidthChange]);
+
+  // Hold grid i sync ved senere rows-endringer
   useEffect(() => {
     const el = gridRef.current as any;
     if (!el) return;
-
-    // Vent til elementet er i DOM og shadow er klar
-    const apply = () => {
-      el.columns = columns;
-      el.source =
-        rows && rows.length
-          ? rows
-          : [{ navn: "Test-rad 1 (sanity)", start: "2025-10-01", varighet: 5 }];
-      const totalW =
-        Array.isArray(columns) && columns.length
-          ? columns.reduce((acc: number, col: any) => acc + (col.size ?? 120), 0)
-          : 0;
-      onTotalWidthChange?.(totalW);
-    };
-
-    if (typeof requestAnimationFrame === "function") {
-      requestAnimationFrame(() => {
-        // microtask i tilfelle
-        Promise.resolve().then(apply);
-      });
-    } else {
-      apply();
-    }
-  }, [columns, rows, onTotalWidthChange]);
+    try {
+      el.source = rows && rows.length
+        ? rows
+        : [{ navn: "Test-rad 1 (sanity)", start: "2025-10-01", varighet: 5 }];
+      report(`update rows → ${rows?.length ?? 0}`);
+    } catch {}
+  }, [rows]);
 
   // Best-effort horisontal scroll sync
   useEffect(() => {
@@ -152,7 +195,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     };
   }, [onScrollXChange, onViewportWidthChange, onTopRowChange]);
 
-  // Imperative handle
   useImperativeHandle(ref, () => ({
     scrollToX: (x: number) => {
       try {
@@ -179,10 +221,26 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         position: "relative",
         overflow: "hidden",
         width: "100%",
-        // height settes i effect → `${height}px`
         background: "#fff",
+        borderRight: "1px solid #e5e7eb",
       }}
     >
+      {/* Debug-strip – fjern når gridet synes */}
+      <div
+        style={{
+          position: "absolute",
+          inset: "0 auto auto 0",
+          background: "#f3f4f6",
+          color: "#6b7280",
+          fontSize: 11,
+          padding: "2px 6px",
+          borderBottomRightRadius: 6,
+          zIndex: 2,
+        }}
+      >
+        grid: {dbg}
+      </div>
+
       <revo-grid
         ref={gridRef}
         theme="material"
