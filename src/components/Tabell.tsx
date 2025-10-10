@@ -308,6 +308,35 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }, [rows]);
   /* ==== [BLOCK: editor observer (commit på blur/enter/klikk-utenfor)] END ==== */
 
+  /* ==== [BLOCK: global click-away commit] BEGIN ==== */
+useEffect(() => {
+  // Hvis det finnes en aktiv editor -> commit verdien når du klikker et annet sted
+  const onPointerDown: EventListener = (ev: Event) => {
+    const input = editorInputRef.current;
+    if (!input) return; // ingen editor å committe
+
+    const gridEl = gridRef.current as any;
+    const shadow = gridEl?.shadowRoot as ShadowRoot | null;
+    const editCell = shadow?.querySelector(".editCell") as HTMLElement | null;
+
+    // Klikk INNE i editor-cella? Da lar vi RevoGrid håndtere det.
+    const path = (ev as any).composedPath?.() as EventTarget[] | undefined;
+    if (path && (path.includes(input) || (editCell && path.includes(editCell)))) return;
+
+    // Klikk utenfor -> commit med vår egen commitEdit
+    const info = editorInfoRef.current;
+    if (info) {
+      commitEdit(info.row, info.col, (input as any).value);
+      // NB: Vi lar eventet fortsette, så RevoGrid får lov til å lukke editoren.
+    }
+  };
+
+  // capture=true for å komme før RevoGrid sin blur/cancel
+  window.addEventListener("pointerdown", onPointerDown, { capture: true } as any);
+  return () => window.removeEventListener("pointerdown", onPointerDown, { capture: true } as any);
+}, [rows]);
+/* ==== [BLOCK: global click-away commit] END ==== */
+
   /* ==== [BLOCK: keep rows in sync] BEGIN ==== */
   useEffect(() => {
     const el = gridRef.current as any;
