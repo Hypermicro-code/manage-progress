@@ -1,11 +1,5 @@
 // /src/components/Tabell.tsx
-// RevoGrid – v0.5.0 (CDN-variant)
-// - Full regler/propag: start/slutt/varighet → planAfterEdit/resolvePrompt
-// - Kalender: dblklikk/Alt+↓
-// - Synlige gridlinjer (inline CSS vars, kan flyttes til styles.css)
-// - Ingen intern V-scroll (grid-høyde = HEADER_H + rows.length * ROW_H)
-// - Radnummerering (#-kolonne) uten å forstyrre data (vi mapper inn _row ved rendering)
-// - Robust event-binding: cellFocus + selectionChanged + afteredit/afterEdit
+// RevoGrid – v0.5.1 (commit-on-blur + full regler/kalender)
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -96,7 +90,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: date popover state] END ==== */
 
   /* ==== [BLOCK: columns mapping] BEGIN ==== */
-  // For RevoGrid legger vi til en første kolonne med radnummer (#)
+  // Første kolonne: radnummer (#)
   const columns = useMemo(() => {
     const nrCol = { name: "#", prop: "_row", size: 56, type: "text" } as const;
     const mapped = TABLE_COLS.map((c) => ({
@@ -120,10 +114,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: container height] END ==== */
 
   /* ==== [BLOCK: data mapping (radnr uten å endre global state)] BEGIN ==== */
-  const viewData = useMemo(() => {
-    // Vi injiserer _row = 1..N kun til visning
-    return rows.map((r, i) => ({ _row: String(i + 1), ...r }));
-  }, [rows]);
+  const viewData = useMemo(() => rows.map((r, i) => ({ _row: String(i + 1), ...r })), [rows]);
   /* ==== [BLOCK: data mapping (radnr uten å endre global state)] END ==== */
 
   /* ==== [BLOCK: imperative init + event binding] BEGIN ==== */
@@ -134,10 +125,8 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     const apply = () => {
       el.columns = columns;
       el.source = viewData;
-
       const totalW = columns.reduce((acc: number, c: any) => acc + (c.size ?? 120), 0);
       onTotalWidthChange?.(totalW);
-
       if (typeof el.refresh === "function") el.refresh("all");
     };
 
@@ -156,13 +145,9 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       const cells: { r: number; c: KolonneKey }[] = [];
       for (const r of ranges) {
         const { x = 0, y = 0, width = 1, height = 1 } = r || {};
-        // x er RevoGrid-kolonneindeks; vi har lagt til _row (#) først → offset -1 for våre TABLE_COLS
-        for (let rr = y; rr < rr + height; rr++) {
-          /* no-op */
-        }
         for (let rr = y; rr < y + height; rr++) {
           for (let cc = x; cc < x + width; cc++) {
-            const ourIndex = cc - 1;
+            const ourIndex = cc - 1; // -1 pga. # kolonne
             const key = TABLE_COLS[ourIndex]?.key as KolonneKey;
             if (ourIndex >= 0 && key) cells.push({ r: rr, c: key });
           }
@@ -177,28 +162,25 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       }
     };
 
-    // Fokus-celle (sikrere enn kun selection)
+    // Fokus (sikrere kalender)
     const onCellFocus = (e: CustomEvent) => {
       const det: any = e.detail ?? {};
       const rowIndex = Number(det?.rowIndex ?? det?.row ?? -1);
       const colProp: string | undefined = det?.columnProp || det?.prop;
-      // colProp kan være "_row" eller faktisk data. Vi ignorerer _row.
       if (!Number.isFinite(rowIndex) || rowIndex < 0) return;
-      if (!colProp) return;
-      if (colProp === "_row") return;
+      if (!colProp || colProp === "_row") return;
       focusRef.current = { rowIndex, colKey: colProp as KolonneKey };
     };
 
-    // Etter redigering
+    // Etter redigering → normaliser + regler
     const handleAfterEdit = (e: CustomEvent) => {
       const det: any = e.detail ?? {};
       const rowIndex: number = det?.row;
-      let colKey: string = det?.col;
+      const colKey: string = det?.col;
       const rawVal: any = det?.value;
       if (rowIndex == null || colKey == null || !rows[rowIndex]) return;
-      if (colKey === "_row") return; // aldri commit på nr-kolonnen
+      if (colKey === "_row") return;
 
-      // Normaliser
       let committed: any = rawVal;
       if (colKey === "start" || colKey === "slutt") {
         const { normalized } = canonicalizeDateInput(rawVal);
@@ -212,7 +194,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
       setCell(rowIndex, colKey as keyof Rad, committed as any);
 
-      // Regler → autoPatch/prompt
       const curr = rows[rowIndex];
       const nextRow: Rad = { ...curr, [colKey]: committed } as Rad;
       const plan = planAfterEdit(nextRow, colKey as any);
@@ -234,7 +215,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       }
     };
 
-    // Bind flere varianter av events (noen builds bruker camelCase)
+    // Bind begge varianter (noen builds bruker camelCase)
     el.addEventListener("selectionChanged", onSelectionChanged as any);
     el.addEventListener("cellFocus", onCellFocus as any);
     el.addEventListener("afteredit", handleAfterEdit as any);
@@ -248,6 +229,47 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     };
   }, [columns, viewData, rows, onTotalWidthChange, onSelectionChange, setCell]);
   /* ==== [BLOCK: imperative init + event binding] END ==== */
+
+  /* ==== [BLOCK: commit-on-click-away] BEGIN ==== */
+  useEffect(() => {
+    // Hvis editor er åpen og du klikker utenfor → simuler Enter på inputen, så RevoGrid committer
+    const onPointerDown = (ev: PointerEvent) => {
+      const el = gridRef.current as any;
+      if (!el) return;
+
+      // Finn aktiv editor-input i shadow DOM
+      const shadow = el.shadowRoot as ShadowRoot | null;
+      const editorInput =
+        shadow?.querySelector(".editCell input, .editCell textarea, input.rgInput, textarea.rgInput") as
+          | HTMLInputElement
+          | HTMLTextAreaElement
+          | null;
+
+      if (!editorInput) return;
+
+      // Hvis klikket er inne i editor → la RevoGrid håndtere
+      const path = ev.composedPath?.() || [];
+      if (path.includes(editorInput)) return;
+
+      // Klikk utenfor → simuler Enter for å committe
+      try {
+        editorInput.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
+        );
+        editorInput.dispatchEvent(
+          new KeyboardEvent("keyup", { key: "Enter", bubbles: true, cancelable: true })
+        );
+      } catch {
+        // fallback: blur
+        editorInput.blur();
+      }
+    };
+
+    // Bruk capture så vi kommer før RevoGrid sin blur-cancel
+    window.addEventListener("pointerdown", onPointerDown, { capture: true });
+    return () => window.removeEventListener("pointerdown", onPointerDown as any, { capture: true } as any);
+  }, []);
+  /* ==== [BLOCK: commit-on-click-away] END ==== */
 
   /* ==== [BLOCK: keep rows in sync] BEGIN ==== */
   useEffect(() => {
