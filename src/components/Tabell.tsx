@@ -239,107 +239,109 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: commit helper] END ==== */
 
   /* ==== [BLOCK: editor observer (input/textarea/contenteditable)] BEGIN ==== */
-  useEffect(() => {
-    const gridEl = gridRef.current as any;
-    if (!gridEl) return;
+useEffect(() => {
+  const gridEl = gridRef.current as any;
+  if (!gridEl) return;
 
-    const shadow = gridEl.shadowRoot as ShadowRoot | null;
-    if (!shadow) return;
+  const shadow = gridEl.shadowRoot as ShadowRoot | null;
+  if (!shadow) return;
 
-    const readEditorValue = (el: HTMLElement): string => {
-      if ("value" in el && typeof (el as any).value === "string") {
-        return (el as any).value as string;
-      }
-      // contenteditable → bruk innerText
-      return (el.innerText ?? "").trim();
-    };
+  const readEditorValue = (el: HTMLElement): string => {
+    if ("value" in (el as any) && typeof (el as any).value === "string") {
+      return String((el as any).value);
+    }
+    return (el.innerText ?? "").trim();
+  };
 
-    editorObsRef.current?.disconnect();
-    editorObsRef.current = new MutationObserver(() => {
-      const editorHost = shadow.querySelector(".editCell") as HTMLElement | null;
+  editorObsRef.current?.disconnect();
+  editorObsRef.current = new MutationObserver(() => {
+    const editorHost = shadow.querySelector(".editCell") as HTMLElement | null;
+    const inputLike =
+      (editorHost?.querySelector(
+        "input, textarea, [contenteditable='true']"
+      ) as HTMLElement | null) ?? null;
 
-      const inputLike =
-        (editorHost?.querySelector(
-          "input, textarea, [contenteditable='true']"
-        ) as HTMLElement | null) ?? null;
+    editorElRef.current = inputLike || null;
 
-      editorElRef.current = inputLike || null;
+    if (inputLike) {
+      // lås inn nåværende fokus (rad/kolonne)
+      const focus = focusRef.current;
+      if (focus) editorInfoRef.current = { row: focus.rowIndex, col: focus.colKey as GridColKey };
 
-      if (inputLike) {
-        const focus = focusRef.current;
-        if (focus) editorInfoRef.current = { row: focus.rowIndex, col: focus.colKey as GridColKey };
-
-        const onKeyDown: EventListener = (evt: Event) => {
-          const e = evt as KeyboardEvent;
-          if (e.key === "Enter") {
-            const info = editorInfoRef.current;
-            if (info) commitEdit(info.row, info.col, readEditorValue(inputLike));
-          }
-        };
-        const onBlur: EventListener = () => {
+      const onKeyDown: EventListener = (evt: Event) => {
+        const e = evt as KeyboardEvent;
+        if (e.key === "Enter" || e.key === "Tab" || e.key === "Escape") {
           const info = editorInfoRef.current;
           if (info) commitEdit(info.row, info.col, readEditorValue(inputLike));
-        };
+        }
+      };
+      const onBlur: EventListener = () => {
+        const info = editorInfoRef.current;
+        if (info) commitEdit(info.row, info.col, readEditorValue(inputLike));
+      };
 
-        inputLike.addEventListener("keydown", onKeyDown);
-        inputLike.addEventListener("blur", onBlur);
+      inputLike.addEventListener("keydown", onKeyDown);
+      inputLike.addEventListener("blur", onBlur);
 
-        const cleanup = () => {
+      // Når editCell fjernes av RevoGrid → commit én siste gang før cleanup
+      const cellObs = new MutationObserver(() => {
+        const stillThere = shadow.querySelector(".editCell");
+        if (!stillThere) {
+          const info = editorInfoRef.current;
+          if (info && inputLike) {
+            commitEdit(info.row, info.col, readEditorValue(inputLike));
+          }
           inputLike.removeEventListener("keydown", onKeyDown);
           inputLike.removeEventListener("blur", onBlur);
-        };
+          cellObs.disconnect();
+          editorElRef.current = null;
+          editorInfoRef.current = null;
+        }
+      });
+      cellObs.observe(shadow, { childList: true, subtree: true });
+    }
+  });
 
-        const cellObs = new MutationObserver(() => {
-          const stillThere = shadow.querySelector(".editCell");
-          if (!stillThere) {
-            cleanup();
-            cellObs.disconnect();
-            editorElRef.current = null;
-            editorInfoRef.current = null;
-          }
-        });
-        cellObs.observe(shadow, { childList: true, subtree: true });
-      }
-    });
+  editorObsRef.current.observe(shadow, { childList: true, subtree: true });
 
-    editorObsRef.current.observe(shadow, { childList: true, subtree: true });
+  return () => {
+    editorObsRef.current?.disconnect();
+    editorObsRef.current = null;
+    editorElRef.current = null;
+    editorInfoRef.current = null;
+  };
+}, [rows]);
+/* ==== [BLOCK: editor observer (input/textarea/contenteditable)] END ==== */
 
-    return () => {
-      editorObsRef.current?.disconnect();
-      editorObsRef.current = null;
-      editorElRef.current = null;
-      editorInfoRef.current = null;
-    };
-  }, [rows]);
-  /* ==== [BLOCK: editor observer (input/textarea/contenteditable)] END ==== */
 
   /* ==== [BLOCK: global click-away commit] BEGIN ==== */
-  useEffect(() => {
-    const onPointerDown: EventListener = (ev: Event) => {
-      const inputLike = editorElRef.current;
-      if (!inputLike) return;
+useEffect(() => {
+  const onPointerDown: EventListener = (ev: Event) => {
+    const editorEl = editorElRef.current;
+    if (!editorEl) return;
 
-      const gridEl = gridRef.current as any;
-      const shadow = gridEl?.shadowRoot as ShadowRoot | null;
-      const editCell = shadow?.querySelector(".editCell") as HTMLElement | null;
+    // hvis klikket er INNE i tabell-containeren, la editoren håndteres av RevoGrid
+    const target = ev.target as Node | null;
+    if (containerRef.current && target && containerRef.current.contains(target)) {
+      return;
+    }
 
-      const path = (ev as any).composedPath?.() as EventTarget[] | undefined;
-      if (path && (path.includes(inputLike) || (editCell && path.includes(editCell)))) return;
+    // Utenfor tabell-container → commit
+    const info = editorInfoRef.current;
+    if (info) {
+      const val =
+        "value" in (editorEl as any) && typeof (editorEl as any).value === "string"
+          ? (editorEl as any).value
+          : (editorEl.innerText ?? "").trim();
+      commitEdit(info.row, info.col, val);
+    }
+  };
 
-      const info = editorInfoRef.current;
-      if (info) {
-        const val =
-          "value" in (inputLike as any) && typeof (inputLike as any).value === "string"
-            ? (inputLike as any).value
-            : (inputLike.innerText ?? "").trim();
-        commitEdit(info.row, info.col, val);
-      }
-    };
+  window.addEventListener("pointerdown", onPointerDown, { capture: true } as any);
+  return () => window.removeEventListener("pointerdown", onPointerDown, { capture: true } as any);
+}, [rows]);
+/* ==== [BLOCK: global click-away commit] END ==== */
 
-    window.addEventListener("pointerdown", onPointerDown, { capture: true } as any);
-    return () => window.removeEventListener("pointerdown", onPointerDown, { capture: true } as any);
-  }, [rows]);
-  /* ==== [BLOCK: global click-away commit] END ==== */
 
   /* ==== [BLOCK: keep rows in sync] BEGIN ==== */
   useEffect(() => {
