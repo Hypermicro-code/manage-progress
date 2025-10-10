@@ -1,5 +1,7 @@
 // /src/components/Tabell.tsx
-// RevoGrid – v0.5.2 (manuell commit-on-blur + full regler/kalender)
+// RevoGrid – v0.5.4 (stabil): editor-observer (commit on blur/enter/click-away),
+// regler (start/slutt/varighet) + prompt, kalender (dblklikk/Alt+↓), #-kolonne,
+// ingen intern V-scroll, H-scroll-sync. CDN-kompatibel (ingen import av @revolist/revogrid).
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -32,8 +34,6 @@ declare global {
 
 /* ==== [BLOCK: typer] BEGIN ==== */
 export type KolonneKey = (typeof TABLE_COLS)[number]["key"];
-
-/** Intern grid-nøkkel: våre kolonner + "#"-kolonnen (`_row`) */
 type GridColKey = KolonneKey | "_row";
 
 export type TabellHandle = {
@@ -71,15 +71,14 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   ref
 ) {
   /* ==== [BLOCK: refs] BEGIN ==== */
-const gridRef = useRef<any | null>(null);
-const containerRef = useRef<HTMLDivElement | null>(null);
-const focusRef = useRef<{ rowIndex: number; colKey: KolonneKey } | null>(null);
-const lastClickPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-const editorInfoRef = useRef<{ row: number; col: GridColKey } | null>(null);
-const editorInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
-const editorObsRef = useRef<MutationObserver | null>(null);
-/* ==== [BLOCK: refs] END ==== */
-
+  const gridRef = useRef<any | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const focusRef = useRef<{ rowIndex: number; colKey: KolonneKey } | null>(null);
+  const lastClickPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const editorInfoRef = useRef<{ row: number; col: GridColKey } | null>(null);
+  const editorInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const editorObsRef = useRef<MutationObserver | null>(null);
+  /* ==== [BLOCK: refs] END ==== */
 
   /* ==== [BLOCK: prompt state] BEGIN ==== */
   const [prompt, setPrompt] = useState<(RecalcPromptMeta & { row: number }) | null>(null);
@@ -109,20 +108,20 @@ const editorObsRef = useRef<MutationObserver | null>(null);
   }, []);
   /* ==== [BLOCK: columns mapping] END ==== */
 
-  /* ==== [BLOCK: container height] BEGIN ==== */
+  /* ==== [BLOCK: heights] BEGIN ==== */
   useEffect(() => {
     if (!containerRef.current) return;
     const desired = Math.max(HEADER_H + rows.length * ROW_H + 8, 240, height);
     containerRef.current.style.height = `${desired}px`;
     containerRef.current.style.minHeight = "240px";
   }, [height, rows.length]);
-  /* ==== [BLOCK: container height] END ==== */
+  /* ==== [BLOCK: heights] END ==== */
 
-  /* ==== [BLOCK: data mapping (radnr uten å endre global state)] BEGIN ==== */
+  /* ==== [BLOCK: data mapping (row numbers)] BEGIN ==== */
   const viewData = useMemo(() => rows.map((r, i) => ({ _row: String(i + 1), ...r })), [rows]);
-  /* ==== [BLOCK: data mapping (radnr uten å endre global state)] END ==== */
+  /* ==== [BLOCK: data mapping (row numbers)] END ==== */
 
-  /* ==== [BLOCK: imperative init + event binding] BEGIN ==== */
+  /* ==== [BLOCK: imperative init + events] BEGIN ==== */
   useEffect(() => {
     const el = gridRef.current as any;
     if (!el) return;
@@ -153,7 +152,7 @@ const editorObsRef = useRef<MutationObserver | null>(null);
         const { x = 0, y = 0, width = 1, height = 1 } = r || {};
         for (let rr = y; rr < y + height; rr++) {
           for (let cc = x; cc < x + width; cc++) {
-            const ourIndex = cc - 1; // -1 pga # kolonne
+            const ourIndex = cc - 1; // # kolonne ligger først
             const key = TABLE_COLS[ourIndex]?.key as KolonneKey;
             if (ourIndex >= 0 && key) cells.push({ r: rr, c: key });
           }
@@ -178,14 +177,14 @@ const editorObsRef = useRef<MutationObserver | null>(null);
     };
 
     const handleAfterEdit = (e: CustomEvent) => {
-  const det: any = e.detail ?? {};
-  const rowIndex: number = det?.row;
-  const colKey: GridColKey = det?.col as GridColKey;
-  const rawVal: any = det?.value;
-  if (rowIndex == null || colKey == null || !rows[rowIndex]) return;
-  if (colKey === "_row") return; // ignorer radnr-kolonnen
-  commitEdit(rowIndex, colKey, rawVal);
-};
+      const det: any = e.detail ?? {};
+      const rowIndex: number = det?.row;
+      const colKey = det?.col as GridColKey;
+      const rawVal: any = det?.value;
+      if (rowIndex == null || colKey == null || !rows[rowIndex]) return;
+      if (colKey === "_row") return;
+      commitEdit(rowIndex, colKey, rawVal);
+    };
 
     el.addEventListener("selectionChanged", onSelectionChanged as any);
     el.addEventListener("cellFocus", onCellFocus as any);
@@ -198,100 +197,115 @@ const editorObsRef = useRef<MutationObserver | null>(null);
       el.removeEventListener("afteredit", handleAfterEdit as any);
       el.removeEventListener("afterEdit", handleAfterEdit as any);
     };
-  }, [columns, viewData, rows]);
-  /* ==== [BLOCK: imperative init + event binding] END ==== */
+  }, [columns, viewData, rows, onTotalWidthChange, onSelectionChange, setCell]);
+  /* ==== [BLOCK: imperative init + events] END ==== */
 
   /* ==== [BLOCK: commit helper] BEGIN ==== */
-const commitEdit = (rowIndex: number, colKey: GridColKey, rawVal: any) => {
-  if (colKey === "_row") return; // aldri commit på nr-kolonnen
+  const commitEdit = (rowIndex: number, colKey: GridColKey, rawVal: any) => {
+    if (colKey === "_row") return; // aldri commit på #-kolonnen
+    const dataKey = colKey as KolonneKey;
 
-  // Narrow til våre faktiske datokolonner
-  const dataKey = colKey as KolonneKey;
+    let committed: any = rawVal;
 
-  let committed: any = rawVal;
-
-  if (dataKey === "start" || dataKey === "slutt") {
-    const { normalized } = canonicalizeDateInput(rawVal);
-    committed = normalized || "";
-  } else if (dataKey === "varighet" || dataKey === "ap" || dataKey === "pp") {
-    const n = Number(String(rawVal ?? "").replace(",", "."));
-    committed = Number.isFinite(n) ? n : "";
-  } else {
-    committed = String(rawVal ?? "");
-  }
-
-  setCell(rowIndex, dataKey as keyof Rad, committed as any);
-
-  const curr = rows[rowIndex];
-  const nextRow: Rad = { ...curr, [dataKey]: committed } as Rad;
-  const plan = planAfterEdit(nextRow, dataKey as any);
-
-  if (plan.prompt) {
-    setPrompt({ ...plan.prompt, row: rowIndex });
-    return;
-  }
-  if (plan.autoPatch) {
-    for (const [k, v] of Object.entries(plan.autoPatch)) {
-      setCell(rowIndex, k as keyof Rad, v as any);
+    if (dataKey === "start" || dataKey === "slutt") {
+      const { normalized } = canonicalizeDateInput(rawVal);
+      committed = normalized || "";
+    } else if (dataKey === "varighet" || dataKey === "ap" || dataKey === "pp") {
+      const n = Number(String(rawVal ?? "").replace(",", "."));
+      committed = Number.isFinite(n) ? n : "";
+    } else {
+      committed = String(rawVal ?? "");
     }
-  }
 
-  const s2 = toDate((plan.autoPatch?.start as any) ?? nextRow.start);
-  const e2 = toDate((plan.autoPatch?.slutt as any) ?? nextRow.slutt);
-  if (s2 && e2 && e2 < s2) {
-    setCell(rowIndex, "varighet", "" as any);
-  }
-};
-/* ==== [BLOCK: commit helper] END ==== */
+    setCell(rowIndex, dataKey as keyof Rad, committed as any);
 
+    const curr = rows[rowIndex];
+    const nextRow: Rad = { ...curr, [dataKey]: committed } as Rad;
+    const plan = planAfterEdit(nextRow, dataKey as any);
 
-  /* ==== [BLOCK: manual commit-on-click-away] BEGIN ==== */
+    if (plan.prompt) {
+      setPrompt({ ...plan.prompt, row: rowIndex });
+      return;
+    }
+    if (plan.autoPatch) {
+      for (const [k, v] of Object.entries(plan.autoPatch)) {
+        setCell(rowIndex, k as keyof Rad, v as any);
+      }
+    }
+
+    const s2 = toDate((plan.autoPatch?.start as any) ?? nextRow.start);
+    const e2 = toDate((plan.autoPatch?.slutt as any) ?? nextRow.slutt);
+    if (s2 && e2 && e2 < s2) {
+      setCell(rowIndex, "varighet", "" as any);
+    }
+  };
+  /* ==== [BLOCK: commit helper] END ==== */
+
+  /* ==== [BLOCK: editor observer (commit på blur/enter/klikk-utenfor)] BEGIN ==== */
   useEffect(() => {
-    const onPointerDown = (ev: PointerEvent) => {
-      const gridEl = gridRef.current as any;
-      if (!gridEl) return;
+    const gridEl = gridRef.current as any;
+    if (!gridEl) return;
 
-      const shadow = gridEl.shadowRoot as ShadowRoot | null;
-      if (!shadow) return;
+    const shadow = gridEl.shadowRoot as ShadowRoot | null;
+    if (!shadow) return;
 
-      // Finn editor-input i RevoGrid
-      const editor =
-        (shadow.querySelector(".editCell input, .editCell textarea") as
-          | HTMLInputElement
-          | HTMLTextAreaElement
-          | null) ||
-        (shadow.querySelector("input.rgInput, textarea.rgInput") as
-          | HTMLInputElement
-          | HTMLTextAreaElement
-          | null);
+    editorObsRef.current?.disconnect();
+    editorObsRef.current = new MutationObserver(() => {
+      const editorHost = shadow.querySelector(".editCell") as HTMLElement | null;
+      const input =
+        (editorHost?.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null) ??
+        null;
 
-      if (!editor) return;
+      editorInputRef.current = input || null;
 
-      // Klikk inne i editor? → la RevoGrid håndtere selv
-      const path = (ev.composedPath && (ev.composedPath() as EventTarget[])) || [];
-      if (path.includes(editor)) return;
-
-      // Hvis vi har fokusert celle, commit før editor lukkes
       if (input) {
-  const focus = focusRef.current;
-  if (focus) {
-    editorInfoRef.current = { row: focus.rowIndex, col: focus.colKey as GridColKey };
-  }
+        const focus = focusRef.current;
+        if (focus) {
+          editorInfoRef.current = { row: focus.rowIndex, col: focus.colKey as GridColKey };
+        }
 
-      const { rowIndex, colKey } = focus;
-      if (!rows[rowIndex]) return;
-      if (colKey === "_row") return;
+        const onKeyDown = (e: KeyboardEvent) => {
+          if (e.key === "Enter") {
+            const info = editorInfoRef.current;
+            if (info) commitEdit(info.row, info.col, (input as any).value);
+          }
+        };
+        const onBlur = () => {
+          const info = editorInfoRef.current;
+          if (info) commitEdit(info.row, info.col, (input as any).value);
+        };
 
-      const rawVal = editor.value;
-      commitEdit(rowIndex, colKey, rawVal);
-      // Ikke stopp event – vi vil at klikket fortsatt skal skje (lukke editor)
+        input.addEventListener("keydown", onKeyDown);
+        input.addEventListener("blur", onBlur);
+
+        const cleanup = () => {
+          input.removeEventListener("keydown", onKeyDown);
+          input.removeEventListener("blur", onBlur);
+        };
+
+        const cellObs = new MutationObserver(() => {
+          const stillThere = shadow.querySelector(".editCell");
+          if (!stillThere) {
+            cleanup();
+            cellObs.disconnect();
+            editorInputRef.current = null;
+            editorInfoRef.current = null;
+          }
+        });
+        cellObs.observe(shadow, { childList: true, subtree: true });
+      }
+    });
+
+    editorObsRef.current.observe(shadow, { childList: true, subtree: true });
+
+    return () => {
+      editorObsRef.current?.disconnect();
+      editorObsRef.current = null;
+      editorInputRef.current = null;
+      editorInfoRef.current = null;
     };
-
-    // Capture: kjør før blur/cancel
-    window.addEventListener("pointerdown", onPointerDown, { capture: true });
-    return () => window.removeEventListener("pointerdown", onPointerDown as any, { capture: true } as any);
   }, [rows]);
-  /* ==== [BLOCK: manual commit-on-click-away] END ==== */
+  /* ==== [BLOCK: editor observer (commit på blur/enter/klikk-utenfor)] END ==== */
 
   /* ==== [BLOCK: keep rows in sync] BEGIN ==== */
   useEffect(() => {
@@ -409,7 +423,13 @@ const commitEdit = (rowIndex: number, colKey: GridColKey, rawVal: any) => {
       if (vp) vp.scrollLeft = x;
     },
     copySelectionToClipboard: () => {
-      try { document.execCommand?.("copy"); return true; } catch { return false; }
+      try {
+        // funker i moderne browsere, fallback håndteres av RevoGrid sin clipboard
+        document.execCommand?.("copy");
+        return true;
+      } catch {
+        return false;
+      }
     },
   }));
   /* ==== [BLOCK: imperative handle] END ==== */
