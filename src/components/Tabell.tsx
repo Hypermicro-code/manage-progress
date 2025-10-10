@@ -1,10 +1,11 @@
 // /src/components/Tabell.tsx
-// RevoGrid (CDN) – v0.4.1
-// - Regler (start/slutt/varighet) + prompt
-// - Fleksibel dato-normalisering
-// - Kalender (dblklikk/Alt+↓)
-// - Imperativ binding (React 18 + web components)
-// - Høyde fra parent (Fremdriftsplan)
+// RevoGrid – v0.5.0 (CDN-variant)
+// - Full regler/propag: start/slutt/varighet → planAfterEdit/resolvePrompt
+// - Kalender: dblklikk/Alt+↓
+// - Synlige gridlinjer (inline CSS vars, kan flyttes til styles.css)
+// - Ingen intern V-scroll (grid-høyde = HEADER_H + rows.length * ROW_H)
+// - Radnummerering (#-kolonne) uten å forstyrre data (vi mapper inn _row ved rendering)
+// - Robust event-binding: cellFocus + selectionChanged + afteredit/afterEdit
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -26,7 +27,6 @@ import {
 /* ==== [BLOCK: imports] END ==== */
 
 /* ==== [BLOCK: JSX shim] BEGIN ==== */
-// Siden du laster web-komponenten via CDN i index.html, holder vi en enkel JSX-typing
 declare global {
   namespace JSX {
     interface IntrinsicElements {
@@ -96,36 +96,44 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   /* ==== [BLOCK: date popover state] END ==== */
 
   /* ==== [BLOCK: columns mapping] BEGIN ==== */
-  const columns = useMemo(
-    () =>
-      TABLE_COLS.map((c) => ({
-        name: c.name,
-        prop: c.key,
-        size: Math.max(80, c.width ?? 120),
-        type: c.key === "varighet" || c.key === "ap" || c.key === "pp" ? "number" : "text",
-      })),
-    []
-  );
+  // For RevoGrid legger vi til en første kolonne med radnummer (#)
+  const columns = useMemo(() => {
+    const nrCol = { name: "#", prop: "_row", size: 56, type: "text" } as const;
+    const mapped = TABLE_COLS.map((c) => ({
+      name: c.name,
+      prop: c.key,
+      size: Math.max(80, c.width ?? 120),
+      type: c.key === "varighet" || c.key === "ap" || c.key === "pp" ? "number" : "text",
+    }));
+    return [nrCol, ...mapped];
+  }, []);
   /* ==== [BLOCK: columns mapping] END ==== */
 
   /* ==== [BLOCK: container height] BEGIN ==== */
   useEffect(() => {
-    if (containerRef.current) {
-      const h = Math.max(HEADER_H + rows.length * ROW_H + 8, height, 240);
-      containerRef.current.style.height = `${h}px`;
-      containerRef.current.style.minHeight = "240px";
-    }
+    if (!containerRef.current) return;
+    // Ingen intern V-scroll: gjør grid like høyt som alle rader
+    const desired = Math.max(HEADER_H + rows.length * ROW_H + 8, 240, height);
+    containerRef.current.style.height = `${desired}px`;
+    containerRef.current.style.minHeight = "240px";
   }, [height, rows.length]);
   /* ==== [BLOCK: container height] END ==== */
 
-  /* ==== [BLOCK: imperative init + events] BEGIN ==== */
+  /* ==== [BLOCK: data mapping (radnr uten å endre global state)] BEGIN ==== */
+  const viewData = useMemo(() => {
+    // Vi injiserer _row = 1..N kun til visning
+    return rows.map((r, i) => ({ _row: String(i + 1), ...r }));
+  }, [rows]);
+  /* ==== [BLOCK: data mapping (radnr uten å endre global state)] END ==== */
+
+  /* ==== [BLOCK: imperative init + event binding] BEGIN ==== */
   useEffect(() => {
     const el = gridRef.current as any;
     if (!el) return;
 
     const apply = () => {
       el.columns = columns;
-      el.source = rows;
+      el.source = viewData;
 
       const totalW = columns.reduce((acc: number, c: any) => acc + (c.size ?? 120), 0);
       onTotalWidthChange?.(totalW);
@@ -133,45 +141,64 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       if (typeof el.refresh === "function") el.refresh("all");
     };
 
-    const ready = !!customElements.get("revo-grid");
-    if (!ready && (customElements as any).whenDefined) {
-      (customElements as any).whenDefined("revo-grid").then(() => {
-        requestAnimationFrame(() => Promise.resolve().then(apply));
-      });
+    const ensure = () => requestAnimationFrame(() => Promise.resolve().then(apply));
+
+    if (!customElements.get("revo-grid") && (customElements as any).whenDefined) {
+      (customElements as any).whenDefined("revo-grid").then(ensure);
     } else {
-      requestAnimationFrame(() => Promise.resolve().then(apply));
+      ensure();
     }
 
-    // Utvalg → løft + fokus (for kalender)
+    // Utvalg + fokus (til kalender) + løft utvalg for "Tøm markerte"
     const onSelectionChanged = (e: CustomEvent) => {
       const det: any = e.detail ?? {};
       const ranges: any[] = det?.rgRange || det?.range || [];
       const cells: { r: number; c: KolonneKey }[] = [];
       for (const r of ranges) {
         const { x = 0, y = 0, width = 1, height = 1 } = r || {};
+        // x er RevoGrid-kolonneindeks; vi har lagt til _row (#) først → offset -1 for våre TABLE_COLS
+        for (let rr = y; rr < rr + height; rr++) {
+          /* no-op */
+        }
         for (let rr = y; rr < y + height; rr++) {
           for (let cc = x; cc < x + width; cc++) {
-            const key = TABLE_COLS[cc]?.key as KolonneKey;
-            if (key) cells.push({ r: rr, c: key });
+            const ourIndex = cc - 1;
+            const key = TABLE_COLS[ourIndex]?.key as KolonneKey;
+            if (ourIndex >= 0 && key) cells.push({ r: rr, c: key });
           }
         }
       }
       onSelectionChange?.(cells);
       if (ranges[0]) {
         const { x = 0, y = 0 } = ranges[0];
-        const key = (TABLE_COLS[x]?.key || "navn") as KolonneKey;
+        const ourIndex = x - 1;
+        const key = (TABLE_COLS[ourIndex]?.key || "navn") as KolonneKey;
         focusRef.current = { rowIndex: y, colKey: key };
       }
     };
 
-    // Etter redigering → normaliser + regler
-    const onAfterEdit = (e: CustomEvent) => {
+    // Fokus-celle (sikrere enn kun selection)
+    const onCellFocus = (e: CustomEvent) => {
+      const det: any = e.detail ?? {};
+      const rowIndex = Number(det?.rowIndex ?? det?.row ?? -1);
+      const colProp: string | undefined = det?.columnProp || det?.prop;
+      // colProp kan være "_row" eller faktisk data. Vi ignorerer _row.
+      if (!Number.isFinite(rowIndex) || rowIndex < 0) return;
+      if (!colProp) return;
+      if (colProp === "_row") return;
+      focusRef.current = { rowIndex, colKey: colProp as KolonneKey };
+    };
+
+    // Etter redigering
+    const handleAfterEdit = (e: CustomEvent) => {
       const det: any = e.detail ?? {};
       const rowIndex: number = det?.row;
-      const colKey: KolonneKey = det?.col;
+      let colKey: string = det?.col;
       const rawVal: any = det?.value;
       if (rowIndex == null || colKey == null || !rows[rowIndex]) return;
+      if (colKey === "_row") return; // aldri commit på nr-kolonnen
 
+      // Normaliser
       let committed: any = rawVal;
       if (colKey === "start" || colKey === "slutt") {
         const { normalized } = canonicalizeDateInput(rawVal);
@@ -185,6 +212,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
 
       setCell(rowIndex, colKey as keyof Rad, committed as any);
 
+      // Regler → autoPatch/prompt
       const curr = rows[rowIndex];
       const nextRow: Rad = { ...curr, [colKey]: committed } as Rad;
       const plan = planAfterEdit(nextRow, colKey as any);
@@ -206,23 +234,28 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       }
     };
 
+    // Bind flere varianter av events (noen builds bruker camelCase)
     el.addEventListener("selectionChanged", onSelectionChanged as any);
-    el.addEventListener("afteredit", onAfterEdit as any);
+    el.addEventListener("cellFocus", onCellFocus as any);
+    el.addEventListener("afteredit", handleAfterEdit as any);
+    el.addEventListener("afterEdit", handleAfterEdit as any);
 
     return () => {
       el.removeEventListener("selectionChanged", onSelectionChanged as any);
-      el.removeEventListener("afteredit", onAfterEdit as any);
+      el.removeEventListener("cellFocus", onCellFocus as any);
+      el.removeEventListener("afteredit", handleAfterEdit as any);
+      el.removeEventListener("afterEdit", handleAfterEdit as any);
     };
-  }, [columns, rows, onTotalWidthChange, onSelectionChange, setCell]);
-  /* ==== [BLOCK: imperative init + events] END ==== */
+  }, [columns, viewData, rows, onTotalWidthChange, onSelectionChange, setCell]);
+  /* ==== [BLOCK: imperative init + event binding] END ==== */
 
   /* ==== [BLOCK: keep rows in sync] BEGIN ==== */
   useEffect(() => {
     const el = gridRef.current as any;
     if (!el) return;
-    el.source = rows;
+    el.source = viewData;
     if (typeof el.refresh === "function") el.refresh("viewport");
-  }, [rows]);
+  }, [viewData]);
   /* ==== [BLOCK: keep rows in sync] END ==== */
 
   /* ==== [BLOCK: H-scroll sync] BEGIN ==== */
