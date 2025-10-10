@@ -9,13 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@glideapps/glide-data-grid": "^6.0.1",
+    "@revolist/revogrid": "*",
     "lodash-es": "^4.17.21",
     "marked": "^4.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-responsive-carousel": "^3.2.23",
-    "@revolist/revogrid": "*"
+    "react-responsive-carousel": "^3.2.23"
   },
   "devDependencies": {
     "@types/react": "^18.3.5",
