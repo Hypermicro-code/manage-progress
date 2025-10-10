@@ -1,5 +1,5 @@
-// Tabell.tsx – Minimal RevoGrid sanity test med kompatibelt API mot Fremdriftsplan
-// Formål: få vekk build-feil og verifisere at RevoGrid faktisk rendrer i din stack.
+// Tabell.tsx – Minimal RevoGrid sanity test (med korrekt høyde)
+// Formål: få gridet synlig i venstrepanelet. Setter container-høyde = props.height.
 
 /* ==== [BLOCK: imports] BEGIN ==== */
 import React, {
@@ -37,7 +37,6 @@ type Props = {
   rows: Rad[];
   setCell: (rowIndex: number, key: keyof Rad, value: Rad[keyof Rad]) => void;
 
-  // disse brukes av Fremdriftsplan; vi trenger ikke alle i testen, men de må finnes
   height: number;
   scrollX: number;
   onScrollXChange: (x: number) => void;
@@ -53,17 +52,17 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   {
     rows,
     // setCell, // ikke brukt i minimaltest
-    // height,
+    height,
     scrollX,
     onScrollXChange,
     onTotalWidthChange,
-    // onSelectionChange,
     onViewportWidthChange,
     onTopRowChange,
   },
   ref
 ) {
   const gridRef = useRef<any | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Map kolonner fra TABLE_COLS -> RevoGrid-format
   const columns = useMemo(
@@ -72,7 +71,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         name: c.name,
         prop: c.key,
         size: c.width,
-        // enkel typehint
         type:
           c.key === "varighet" || c.key === "ap" || c.key === "pp"
             ? "number"
@@ -81,23 +79,40 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
     []
   );
 
-  // Sett columns + source imperativt (viktig for React 18 + web components)
+  // Sett høyde på containeren slik at gridet faktisk synes
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.style.height = `${Math.max(120, height)}px`;
+    }
+  }, [height]);
+
+  // Sett columns + source imperativt (React 18 + web components)
   useEffect(() => {
     const el = gridRef.current as any;
     if (!el) return;
 
-    el.columns = columns;
-    el.source =
-      rows && rows.length
-        ? rows
-        : [{ navn: "Test-rad 1 (sanity)", start: "2025-10-01", varighet: 5 }];
+    // Vent til elementet er i DOM og shadow er klar
+    const apply = () => {
+      el.columns = columns;
+      el.source =
+        rows && rows.length
+          ? rows
+          : [{ navn: "Test-rad 1 (sanity)", start: "2025-10-01", varighet: 5 }];
+      const totalW =
+        Array.isArray(columns) && columns.length
+          ? columns.reduce((acc: number, col: any) => acc + (col.size ?? 120), 0)
+          : 0;
+      onTotalWidthChange?.(totalW);
+    };
 
-    // Rapportér total bredde om ønsket
-    const totalW =
-      Array.isArray(columns) && columns.length
-        ? columns.reduce((acc: number, col: any) => acc + (col.size ?? 120), 0)
-        : 0;
-    onTotalWidthChange?.(totalW);
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        // microtask i tilfelle
+        Promise.resolve().then(apply);
+      });
+    } else {
+      apply();
+    }
   }, [columns, rows, onTotalWidthChange]);
 
   // Best-effort horisontal scroll sync
@@ -121,7 +136,6 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
       } catch {}
     };
 
-    // viewport info (bredde/topprad)
     const onViewportScroll = (e: CustomEvent) => {
       const st: any = e.detail || {};
       if (typeof st?.visibleWidth === "number")
@@ -158,7 +172,17 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
   }));
 
   return (
-    <div className="hide-native-scrollbars tabell-grid" style={{ position: "relative", overflow: "hidden" }}>
+    <div
+      ref={containerRef}
+      className="hide-native-scrollbars tabell-grid"
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        width: "100%",
+        // height settes i effect → `${height}px`
+        background: "#fff",
+      }}
+    >
       <revo-grid
         ref={gridRef}
         theme="material"
@@ -168,6 +192,7 @@ const Tabell = forwardRef<TabellHandle, Props>(function Tabell(
         clipboard
         readonly={false}
         row-size={ROW_H}
+        style={{ width: "100%", height: "100%", display: "block" }}
       ></revo-grid>
     </div>
   );
